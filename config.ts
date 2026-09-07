@@ -160,6 +160,9 @@ export const PROVIDER_WARNINGS: Record<string, string> = {
     "reports cost.total=0 for all models (fixed-credit plan), so USD budget caps cannot bind (§13.14)",
   opencode:
     "returned 401 CreditsError (insufficient balance) during WP0 (§13.15)",
+  "openai-codex":
+    "subscription usage limit was reached 2026-09-07; turns fail with " +
+    "stopReason:error \"usage limit has been reached\" (§13.41)",
 };
 
 /**
@@ -197,12 +200,18 @@ export const DEFAULTS: DebateConfig = {
   // models-store.json 404 through this gateway.
   models: {
     ideator: "openrouter/anthropic/claude-opus-4-8",
-    skeptic: "openai-codex/gpt-6-astra",
+    skeptic: "openrouter/openai/gpt-5.6-sol",
     synthesizer: "openrouter/google/gemini-3.1-pro-preview",
   },
-  // Per-role config is empty by default: every role inherits the run-level settings,
-  // so behavior is identical to before roles existed (§13.28).
-  roles: { ideator: {}, skeptic: {}, synthesizer: {} },
+  // Per-role config. The skeptic carries a cost cap because it is empirically the
+  // dominant spender: 95.3% of the WP5 re-probe's $2.11 ($2.0101 of it) across three
+  // near-constant-cost turns. $1.20 leaves room for two full tool-heavy turns and
+  // stops a third from repeating verification it already did (§13.41).
+  roles: {
+    ideator: {},
+    skeptic: { budget: { usd: 1.2 } },
+    synthesizer: {},
+  },
   freeModels: [...KNOWN_FREE_MODELS],
   thinking: { ideator: "high", skeptic: "high", synthesizer: "high" },
   skeptic: { allowBash: true, freeAgreements: 1, minFlaws: 3, minEvidencedFlaws: 2 },
@@ -332,10 +341,28 @@ export const TIERS: Record<string, { models: Record<Role, string>; note: string 
   default: {
     models: {
       ideator: "openrouter/anthropic/claude-opus-4-8",
+      skeptic: "openrouter/openai/gpt-5.6-sol",
+      synthesizer: "openrouter/google/gemini-3.1-pro-preview",
+    },
+    note:
+      "three families; skeptic on gpt-5.6-sol after the codex subscription was " +
+      "exhausted and the 16.6x cost ruling (§13.41)",
+  },
+  /**
+   * The pre-§13.41 roster: skeptic on `openai-codex/gpt-6-astra`. Kept so the WP5
+   * re-probe numbers stay reproducible, and usable again if the codex subscription
+   * is restored. NOTE gpt-6-astra via openrouter costs real money (~$3.54/run at the
+   * re-probe's skeptic token volume) where the subscription billed it as $2.01.
+   */
+  strong: {
+    models: {
+      ideator: "openrouter/anthropic/claude-opus-4-8",
       skeptic: "openai-codex/gpt-6-astra",
       synthesizer: "openrouter/google/gemini-3.1-pro-preview",
     },
-    note: "WP0-verified roster; three families; strongest debaters",
+    note:
+      "the WP5 re-probe roster; requires a working openai-codex subscription, " +
+      "otherwise the skeptic turn fails with a usage-limit error",
   },
 };
 

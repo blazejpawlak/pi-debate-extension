@@ -26,10 +26,15 @@ One word sets all three role models. Applied after config merge; any explicit
 | tier | ideator | skeptic | synthesizer | cost | caveats |
 |---|---|---|---|---|---|
 | `free` | `ibm-services-essentials/claude-haiku-4-5` | same | `ibm-services-essentials/gemma-4-26b-a4b-it` | **$0** | Violates D8 (only 2 families, judge not fully independent). Gemma has no thinking support. Slow: ~13 min for a 6KB seed. Raise `timeouts.turnMs` to ≥240000. |
-| `cheap` | `ibm-services-essentials/claude-sonnet-5` | `openai-codex/gpt-5.4-mini` | `openrouter/google/gemini-3.1-pro-preview` | ~10× under default | 3 real families. |
-| `default` | `openrouter/anthropic/claude-opus-4-8` | `openai-codex/gpt-6-astra` | `openrouter/google/gemini-3.1-pro-preview` | $3.50–14 on a full-size seed | Strongest debaters. Will bind the $5 cap on a 3-round review. |
+| `cheap` | `ibm-services-essentials/claude-sonnet-5` | `openai-codex/gpt-5.4-mini` | `openrouter/google/gemini-3.1-pro-preview` | ~10× under default | 3 real families. **Skeptic needs the codex subscription**, which is currently exhausted (§13.41). |
+| `default` | `openrouter/anthropic/claude-opus-4-8` | `openrouter/openai/gpt-5.6-sol` | `openrouter/google/gemini-3.1-pro-preview` | ~$0.81 projected on a 6KB seed | 3 families. Skeptic capped at $1.20/run by a default role budget (§13.41). |
+| `strong` | `openrouter/anthropic/claude-opus-4-8` | `openai-codex/gpt-6-astra` | `openrouter/google/gemini-3.1-pro-preview` | $2.11 measured on a 6KB seed | The WP5 re-probe roster, kept for reproducibility. **Requires a working `openai-codex` subscription** — otherwise the skeptic turn fails with a usage-limit error. Via OpenRouter instead, gpt-6-astra costs ~$3.54/run. |
 
 `tier` unset = the `default` roster (it is baked into `models.*`).
+
+**All three `default` roles route through `OPENROUTER_KEY`.** If it is missing from the
+environment, every role fails rather than one degrading (§13.42). Remaining balance:
+`curl -s https://openrouter.ai/api/v1/credits -H "Authorization: Bearer $OPENROUTER_KEY"`.
 
 ---
 

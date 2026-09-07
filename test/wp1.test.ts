@@ -152,7 +152,7 @@ try {
   console.log("\n-- resolveRoleModel: config beats frontmatter --");
   eq("config wins",
     resolveRoleModel(DEFAULTS, "skeptic", "persona/model-from-frontmatter"),
-    { provider: "openai-codex", model: "gpt-6-astra" });
+    { provider: "openrouter", model: "openai/gpt-5.6-sol" });
   const nulled = JSON.parse(JSON.stringify(DEFAULTS)) as DebateConfig;
   nulled.models.skeptic = null;
   eq("null config falls back to frontmatter",

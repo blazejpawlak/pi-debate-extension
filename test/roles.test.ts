@@ -41,7 +41,7 @@ console.log("\n-- backward compatibility: no roles block behaves exactly as befo
   const { config, warnings } = loadConfig(ws, true);
   const r = resolveAllRoles(config);
   eq("ideator model unchanged", r.ideator.ref, "openrouter/anthropic/claude-opus-4-8");
-  eq("skeptic model unchanged", r.skeptic.ref, "openai-codex/gpt-6-astra");
+  eq("skeptic model unchanged", r.skeptic.ref, "openrouter/openai/gpt-5.6-sol");
   eq("synthesizer model unchanged", r.synthesizer.ref, "openrouter/google/gemini-3.1-pro-preview");
   eq("thinking inherited", r.ideator.thinking, "high");
   eq("skeptic gets bash by default", r.skeptic.tools, ["read", "grep", "find", "ls", "bash"]);
