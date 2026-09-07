@@ -35,7 +35,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  buildDigest, channelTarget, harnessIsUp, publishDigest,
+  buildDigest, channelTarget, harnessIsUp, publishDigest, readComments,
   PUBLISHER_AGENT_NAME, HARNESS_BASE_URL,
 } from "../publish.ts";
 import { Orchestrator } from "../orchestrator.ts";
@@ -367,5 +367,163 @@ console.log("\n-- (j) a wedged harness cannot stall or fail a run --");
 }
 
 // ===========================================================================
+
+// ===========================================================================
+// §13.48 — "comments" participation. The load-bearing assertion is NEGATIVE:
+// outside input must never become a ledger claim, or §8.1's field permissions and
+// §13.39's cross-author protection are bypassed by anyone on the channel.
+console.log("\n-- (k) readComments: shape, filtering, self-exclusion --");
+{
+  const feedBody = (events: unknown[]) => JSON.stringify({
+    ok: true,
+    result: { text: "# Activity Feed", details: { mode: "feed", channel: "debate", events } },
+  });
+  const { fetch: f, calls } = stubFetch(() => ({
+    status: 200,
+    body: feedBody([
+      { ts: "2026-09-07T20:00:00.000Z", type: "join", agent: "NiceTiger", channel: "debate" },
+      { ts: "2026-09-07T20:01:00.000Z", type: "message", agent: "debate-orchestrator",
+        target: "#debate", preview: "R1 skeptic · 2 open high · B1,B2", channel: "debate" },
+      { ts: "2026-09-07T20:02:00.000Z", type: "message", agent: "NiceTiger",
+        target: "#debate", preview: "Phase 2 has no idempotency guarantee", channel: "debate" },
+    ]),
+  }));
+  const { comments, reason } = await readComments({ enabled: true, channel: "debate" }, { fetch: f });
+  check("no failure reason", !reason, String(reason));
+  eq("only real messages from OTHER agents", comments.length, 1);
+  eq("the outside comment is kept", comments[0]!.agent, "NiceTiger");
+  check("join events are filtered out", !comments.some((c) => c.text.includes("joined")));
+  check("our OWN digests are excluded (no feedback loop, §12)",
+        !comments.some((c) => c.agent === "debate-orchestrator"));
+  const body = JSON.parse(String(calls[0]!.init?.body)) as { action: string; channel: string };
+  eq("uses the feed action", body.action, "feed");
+  eq("channel is passed WITHOUT the # (feed takes a bare name)", body.channel, "debate");
+}
+{
+  // sinceTs must suppress already-seen messages; ISO strings sort lexically.
+  const { fetch: f } = stubFetch(() => ({
+    status: 200,
+    body: JSON.stringify({ ok: true, result: { details: { mode: "feed", events: [
+      { ts: "2026-09-07T20:02:00.000Z", type: "message", agent: "A", preview: "old", channel: "debate" },
+      { ts: "2026-09-07T20:05:00.000Z", type: "message", agent: "A", preview: "new", channel: "debate" },
+    ] } } }),
+  }));
+  const { comments } = await readComments({ enabled: true, channel: "debate" },
+    { fetch: f }, { sinceTs: "2026-09-07T20:03:00.000Z" });
+  eq("only messages newer than sinceTs", comments.map((c) => c.text), ["new"]);
+}
+{
+  // A refusal must be reported, not silently treated as "no comments" (§13.47).
+  const { fetch: f } = stubFetch(() => ({
+    status: 200,
+    body: JSON.stringify({ ok: true, result: { details: { mode: "error", error: "not_registered" } } }),
+  }));
+  const { comments, reason } = await readComments({ enabled: true, channel: "debate" }, { fetch: f });
+  eq("no comments on refusal", comments.length, 0);
+  check("refusal is surfaced", !!reason && reason.includes("not_registered"), String(reason));
+}
+
+console.log("\n-- (l) comments reach the mission but NEVER the ledger --");
+{
+  const ws = mkdtempSync(join(tmpdir(), "debate-wp7d-"));
+  const { fetch: f } = stubFetch((url) => {
+    if (url.endsWith("/health")) return { status: 200 };
+    return {
+      status: 200,
+      body: JSON.stringify({ ok: true, result: { details: { mode: "feed", events: [
+        { ts: "2026-09-07T20:02:00.000Z", type: "message", agent: "NiceTiger",
+          target: "#debate", preview: "OUTSIDE_CANARY: phase 2 lacks idempotency", channel: "debate" },
+      ] } } }),
+    };
+  });
+  const runner = new FakeRunner({
+    fixtures: {
+      "1-ideator": { text: fakeTurnText([{ id: "C1", text: "sound", type: "INFERENCE" }]) },
+      "1-skeptic": { text: fakeTurnText([{ id: "C1", text: "risk", severity: "low", test: "x" }]) },
+      "2-ideator": { text: fakeTurnText([{ id: "C1", text: "fine" }]) },
+      "2-skeptic": { text: fakeTurnText([{ id: "C1", text: "fine", severity: "low" }]) },
+      "verdict-synthesizer": { text: "## 2. Decision\n\nproceed\n" },
+    },
+  });
+  const o = new Orchestrator({
+    workspace: ws, runner, personaDir: PERSONA_DIR,
+    cfg: cfg({
+      publish: { enabled: false, channel: "debate" },
+      participate: { enabled: true, channel: "debate", maxComments: 5, trust: "comments" },
+    }),
+    publishDeps: { fetch: f },
+  });
+  const out = await o.start("20260907-230000-cmt1", { seedText: SEED, seedSource: "test", mode: "review" });
+  eq("run completed", out.status, "complete");
+
+  // THE point: outside text must not appear as a claim.
+  const claimText = JSON.stringify(out.ledger.claims);
+  check("outside comment is NOT a ledger claim", !claimText.includes("OUTSIDE_CANARY"), claimText.slice(0, 200));
+  check("no claim is authored by an outside agent",
+        out.ledger.claims.every((c) => c.author === "A" || c.author === "B"),
+        JSON.stringify(out.ledger.claims.map((c) => c.author)));
+  // But it must reach the models, or the feature does nothing.
+  const missions = runner.calls.map((r) => r.mission).join("\n---\n");
+  check("comment DID reach a debater's mission", missions.includes("OUTSIDE_CANARY"));
+  check("comment reached the JUDGE too (it has no tools, §8.3)",
+        runner.calls.find((r) => r.role === "synthesizer")!.mission.includes("OUTSIDE_CANARY"));
+  check("mission labels it unverified and outside the debate",
+        missions.includes("OUTSIDE") && /unverified/i.test(missions));
+  check("judge is told its decision rests on the ledger",
+        /decision must rest on the ledger/i.test(
+          runner.calls.find((r) => r.role === "synthesizer")!.mission));
+  const events = readEvents(runPaths(ws, out.runId).events);
+  check("external_comments event recorded", events.some((e) => e.code === "external_comments"));
+  // Unbounded comments would eat judge context, which is billed. `preview` is not
+  // length-capped by the harness, so we must cap it ourselves (§13.48).
+  {
+    const longWs = mkdtempSync(join(tmpdir(), "debate-wp7f-"));
+    const huge = "L".repeat(2000);
+    const { fetch: lf } = stubFetch((url) => url.endsWith("/health")
+      ? { status: 200 }
+      : { status: 200, body: JSON.stringify({ ok: true, result: { details: { mode: "feed", events: [
+          { ts: "2026-09-07T20:02:00.000Z", type: "message", agent: "Loud", preview: huge, channel: "debate" },
+        ] } } }) });
+    const lr = new FakeRunner({ fixtures: {
+      "1-ideator": { text: fakeTurnText([{ id: "C1", text: "sound", type: "INFERENCE" }]) },
+      "1-skeptic": { text: fakeTurnText([{ id: "C1", text: "risk", severity: "low", test: "x" }]) },
+      "2-ideator": { text: fakeTurnText([{ id: "C1", text: "fine" }]) },
+      "2-skeptic": { text: fakeTurnText([{ id: "C1", text: "fine", severity: "low" }]) },
+      "verdict-synthesizer": { text: "## 2. Decision\n\nproceed\n" },
+    } });
+    const lo = new Orchestrator({
+      workspace: longWs, runner: lr, personaDir: PERSONA_DIR,
+      cfg: cfg({ participate: { enabled: true, channel: "debate", maxComments: 5, trust: "comments" } }),
+      publishDeps: { fetch: lf },
+    });
+    await lo.start("20260907-230002-cmt3", { seedText: SEED, seedSource: "test", mode: "review" });
+    const jm = lr.calls.find((r) => r.role === "synthesizer")!.mission;
+    check("an over-long comment is truncated", jm.includes("[truncated]"));
+    check("the full 2000-char payload never reaches the model", !jm.includes(huge));
+    rmSync(longWs, { recursive: true, force: true });
+  }
+  rmSync(ws, { recursive: true, force: true });
+}
+{
+  // Disabled by default: no read attempted at all.
+  const ws = mkdtempSync(join(tmpdir(), "debate-wp7e-"));
+  const { fetch: f, calls } = stubFetch(() => ({ status: 200, body: '{"ok":true}' }));
+  const runner = new FakeRunner({
+    fixtures: {
+      "1-ideator": { text: fakeTurnText([{ id: "C1", text: "sound", type: "INFERENCE" }]) },
+      "1-skeptic": { text: fakeTurnText([{ id: "C1", text: "risk", severity: "low", test: "x" }]) },
+      "2-ideator": { text: fakeTurnText([{ id: "C1", text: "fine" }]) },
+      "2-skeptic": { text: fakeTurnText([{ id: "C1", text: "fine", severity: "low" }]) },
+      "verdict-synthesizer": { text: "## 2. Decision\n\nproceed\n" },
+    },
+  });
+  const o = new Orchestrator({
+    workspace: ws, runner, personaDir: PERSONA_DIR, cfg: cfg(), publishDeps: { fetch: f },
+  });
+  await o.start("20260907-230001-cmt2", { seedText: SEED, seedSource: "test", mode: "review" });
+  eq("participate is off by default: zero requests", calls.length, 0);
+  rmSync(ws, { recursive: true, force: true });
+}
+
 console.log(`\n${failures.length ? "FAIL" : "PASS"} — ${pass} checks passed, ${failures.length} failed`);
 if (failures.length) { for (const f of failures) console.log(`  - ${f}`); process.exit(1); }

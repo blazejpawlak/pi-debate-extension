@@ -142,6 +142,23 @@ export interface DebateConfig {
   lessons: { enabled: boolean; maxLines: number };
   inject: "nextTurn" | "followUp" | "none";
   publish: { enabled: boolean; channel: string };
+  /**
+   * §13.48: let other swarm agents comment into a debate.
+   *
+   * `trust: "comments"` is the ONLY level implemented, deliberately. Comments become
+   * labelled context for the debaters and the judge; they never enter `ledger.json`, so
+   * §8.1's field permissions and §13.39's cross-author protection are untouched. Letting
+   * outside agents write claims would need a third author class with its own permission
+   * table — see docs/design/two-way-participation-sketch.md §3.
+   */
+  participate: {
+    enabled: boolean;
+    /** Channel to read. Defaults to `publish.channel` when empty. */
+    channel: string;
+    /** Hard cap per read, so a chatty agent cannot inflate mission size or cost. */
+    maxComments: number;
+    trust: "comments";
+  };
 }
 
 /**
@@ -221,6 +238,9 @@ export const DEFAULTS: DebateConfig = {
   lessons: { enabled: true, maxLines: 200 },
   inject: "nextTurn",
   publish: { enabled: false, channel: "debate" },
+  // Off by default: reading a shared channel changes what the models see, so it must be
+  // an explicit choice. `maxComments: 5` bounds mission growth and therefore cost.
+  participate: { enabled: false, channel: "", maxComments: 5, trust: "comments" },
 };
 
 /**

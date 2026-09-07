@@ -25,7 +25,7 @@ import {
 } from "./manifest.ts";
 import { ensureRunDirs, runPaths, turnFileName, listRuns, type RunPaths } from "./paths.ts";
 import { buildVerdict, writeVerdict, appendLessons, buildSummary } from "./verdict.ts";
-import { publishDigest, type PublishDeps } from "./publish.ts";
+import { publishDigest, readComments, type PublishDeps, type ExternalComment } from "./publish.ts";
 import type { Role, Round, TurnRequest, TurnResult, TurnRunner } from "./runner/types.ts";
 
 export interface OrchestratorOptions {
@@ -114,6 +114,10 @@ export class Orchestrator {
   private inFlightPublishes = new Set<Promise<void>>();
   /** Injected transport for the publisher, so tests never touch the network. */
   private publishDeps: PublishDeps = {};
+  /** §13.48: comments read from the channel, shown as context. Never ledger claims. */
+  private externalComments: ExternalComment[] = [];
+  /** Newest comment ts already seen, so a re-read cannot duplicate it. */
+  private lastCommentTs: string | null = null;
   /** Verdict body from the Synthesizer, kept for the summary. */
   private verdictBody: string | null = null;
   /** Resolved per-role config, computed once (§13.28). */
@@ -287,6 +291,12 @@ export class Orchestrator {
           this.manifest.status = "partial";
           break;
         }
+
+        // §13.48: read the channel at the TURN BOUNDARY only. One bounded read, not a
+        // poll — §12 forbids channel polling loops, and a `while(!x) sleep()` here would
+        // be exactly that. Mid-turn would also be pointless: a running child's context
+        // is already fixed.
+        await this.readExternalComments(round);
 
         const done = await this.runRound(mode, round);
         this.manifest.rounds = round;
@@ -498,6 +508,7 @@ export class Orchestrator {
       lessons: role === "skeptic" ? this.readLessons() : null,
       repairNote: repairNote ?? null,
       truncated,
+      comments: this.externalComments,
     });
     assertMissionSafe(mission);
 
@@ -698,6 +709,54 @@ export class Orchestrator {
     await Promise.allSettled([...this.inFlightPublishes]);
   }
 
+  /**
+   * §13.48: read other agents' channel comments as debate context.
+   *
+   * Accumulates rather than replaces, so a comment made before R1 still informs R3 —
+   * `feedRetention: 50` means re-reading later may no longer return it. Capped by
+   * `participate.maxComments` because every comment costs mission tokens in every
+   * subsequent turn, i.e. real money on a metered provider.
+   *
+   * Never throws and never blocks a run: a down channel is not an error.
+   */
+  private async readExternalComments(round: Round): Promise<void> {
+    const p = this.cfg.participate;
+    if (!p?.enabled) return;
+    const channel = p.channel?.trim() || this.cfg.publish.channel;
+    try {
+      const { comments, reason } = await readComments(
+        { enabled: true, channel },
+        this.publishDeps,
+        { limit: 30, sinceTs: this.lastCommentTs },
+      );
+      if (reason) {
+        appendEvent(this.paths.events, "external_read_skipped", { round, reason });
+        return;
+      }
+      if (comments.length === 0) return;
+      this.lastCommentTs = comments[comments.length - 1]!.ts;
+      const room = Math.max(0, p.maxComments - this.externalComments.length);
+      if (room === 0) {
+        appendEvent(this.paths.events, "external_cap_reached", {
+          round, cap: p.maxComments, dropped: comments.length,
+        });
+        return;
+      }
+      const taken = comments.slice(0, room);
+      this.externalComments.push(...taken);
+      appendEvent(this.paths.events, "external_comments", {
+        round,
+        added: taken.length,
+        dropped: comments.length - taken.length,
+        agents: [...new Set(taken.map((c) => c.agent))],
+      });
+    } catch (e) {
+      appendEvent(this.paths.events, "external_read_skipped", {
+        round, reason: `reader threw: ${(e as Error).message}`,
+      });
+    }
+  }
+
   // ------------------------------------------------------------------
   // Verdict
   // ------------------------------------------------------------------
@@ -725,6 +784,10 @@ export class Orchestrator {
       this.note("Ledger is empty; no judge turn attempted.");
       return null;
     }
+
+    // Final read before the judge: a comment posted during the last round should still
+    // reach it. The judge has no tools, so its prompt is the only channel (§8.3).
+    await this.readExternalComments("verdict");
 
     const result = await this.invoke("verdict", "synthesizer");
     const rec = this.recordTurn("verdict", "synthesizer", result);

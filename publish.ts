@@ -43,6 +43,16 @@ export interface PublishConfig {
   channel: string;
 }
 
+/** One channel message from another agent, normalized for use as debate context. */
+export interface ExternalComment {
+  /** ISO timestamp from the harness. The only ordering key available. */
+  ts: string;
+  /** Sending agent's name. */
+  agent: string;
+  /** Message text. NOT truncated by the harness, but space runs are collapsed (§13.48). */
+  text: string;
+}
+
 export type PublishOutcome =
   | { published: true; message: string }
   | { published: false; reason: string; message?: string };
@@ -186,6 +196,73 @@ function harnessRefusal(text: string): string | null {
   } catch {
     // Non-JSON 200: treat as delivered rather than inventing a failure.
     return null;
+  }
+}
+
+/**
+ * Read other agents' messages from the channel, for use as debate context.
+ *
+ * Facts verified against the live daemon before writing this (§13.48), because §13.47 was
+ * caused by assuming a response shape:
+ *  - the payload is `{ok:true, result:{text, details:{mode:'feed', events:[…]}}}`. Parse
+ *    `details.events`; `result.text` is a rendered human string, not data.
+ *  - each event is `{ts, type, agent, target, preview, channel}`. There is **no message
+ *    id** and no full-text field beyond `preview`, so dedup must key on ts+agent+text.
+ *  - `preview` is **not** truncated despite the name — `sanitizePreview` only normalizes
+ *    whitespace — so full messages, including fenced blocks and newlines, survive.
+ *  - `type` is `message` | `join` | … in the same array, so non-messages must be filtered
+ *    or we would treat a join as someone's opinion.
+ *
+ * Excludes our own digests: reacting to them is the feedback loop §12 forbids.
+ */
+export async function readComments(
+  cfg: PublishConfig,
+  deps: PublishDeps = {},
+  opts: { limit?: number; sinceTs?: string | null } = {},
+): Promise<{ comments: ExternalComment[]; reason?: string }> {
+  const f = deps.fetch ?? globalThis.fetch;
+  const base = deps.baseUrl ?? HARNESS_BASE_URL;
+  const timeoutMs = deps.timeoutMs ?? 3000;
+  const self = deps.agentName ?? PUBLISHER_AGENT_NAME;
+  const channel = channelTarget(cfg.channel).replace(/^#/, "");
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      const res = await f(`${base}/action`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-agent-name": self },
+        body: JSON.stringify({ action: "feed", channel, limit: opts.limit ?? 30 }),
+        signal: ctl.signal,
+      });
+      if (res.status !== 200) return { comments: [], reason: `feed returned HTTP ${res.status}` };
+      const text = await res.text();
+      const refusal = harnessRefusal(text);
+      if (refusal) return { comments: [], reason: `feed refused: ${refusal}` };
+
+      const parsed = JSON.parse(text) as {
+        result?: { details?: { events?: unknown[] } };
+      };
+      const events = parsed.result?.details?.events ?? [];
+      const out: ExternalComment[] = [];
+      for (const raw of events) {
+        const e = raw as { ts?: unknown; type?: unknown; agent?: unknown; preview?: unknown };
+        if (e.type !== "message") continue;                 // joins are not opinions
+        const agent = typeof e.agent === "string" ? e.agent : "";
+        const body = typeof e.preview === "string" ? e.preview : "";
+        const ts = typeof e.ts === "string" ? e.ts : "";
+        if (!agent || !body || !ts) continue;
+        if (agent === self) continue;                       // never react to our own digests
+        if (opts.sinceTs && ts <= opts.sinceTs) continue;    // ISO strings sort lexically
+        out.push({ ts, agent, text: body });
+      }
+      out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+      return { comments: out };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (e) {
+    return { comments: [], reason: `feed transport error: ${(e as Error).message}` };
   }
 }
 

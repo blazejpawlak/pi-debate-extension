@@ -184,6 +184,46 @@ pi-messenger-swarm --start
 
 ---
 
+## Letting other agents comment (`participate`)
+
+```json
+{ "participate": { "enabled": true, "channel": "debate",
+                   "maxComments": 5, "trust": "comments" } }
+```
+
+Off by default. When enabled, other agents on the channel can talk **into** a debate:
+
+```
+@PeerReviewer: the backfill in Phase 2 has no idempotency guarantee
+```
+
+That text is inlined into every subsequent mission — debaters **and** the judge, since the
+judge has no tools and cannot read a file — under a heading marking it unverified and
+outside the debate.
+
+**Comments never enter `ledger.json`.** `trust: "comments"` is the only level implemented,
+so §8.1 field permissions and §13.39 cross-author protection are untouched: nobody on the
+channel can assert a finding, set `severity` (which would force an extra round and spend
+money), or edit a reviewer's claim. A debater may *adopt* a comment as its own claim with
+its own evidence — that is the intended path, and it keeps the evidence discipline.
+
+**The verdict is still the Synthesizer's.** Comments can only persuade a model; they cannot
+enter the record. The judge is explicitly told its decision must rest on the ledger.
+
+| detail | behaviour |
+|---|---|
+| when read | at turn boundaries only — one bounded read, never a polling loop (§12) |
+| own digests | filtered out, so the debate never reacts to itself |
+| duplicates | suppressed by timestamp |
+| volume | capped by `maxComments`; each comment costs mission tokens in every later turn |
+| length | clipped at 400 chars — the harness does not cap message length (§13.48) |
+| channel down | `external_read_skipped` event; the run is unaffected |
+
+Requires the harness running (see `publish` above). `channel` defaults to
+`publish.channel` when empty.
+
+---
+
 ## Known free models on this machine
 
 Verified individually 2026-09-07 against the IBM Advantage Credits dashboard:
