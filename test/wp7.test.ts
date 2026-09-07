@@ -193,13 +193,54 @@ console.log("\n-- (f) HTTP 500 and {ok:false} are both failures --");
   check("reason names the status", !out.published && out.reason.includes("500"), JSON.stringify(out));
 }
 {
-  // The harness answers 200 with {ok:false} for app-level refusals. 200 alone is a trap.
+  // The harness answers 200 with {ok:false} for dispatch-level refusals.
   const { fetch: f } = stubFetch((url) =>
     url.endsWith("/health") ? { status: 200 } : { status: 200, body: '{"ok":false,"error":"not joined"}' });
   const out = await publishDigest({ enabled: true, channel: "debate" }, 1, emptyLedger("test-run", "review"), { fetch: f });
   check("200 with ok:false is NOT treated as published", !out.published, JSON.stringify(out));
   check("reason surfaces the harness error",
         !out.published && out.reason.includes("not joined"), JSON.stringify(out));
+}
+{
+  // §13.47 — THE REAL SHAPE, and the one that fooled the first implementation.
+  // Application failures come back as ok:TRUE with result.details.error. Observed live:
+  // an unregistered publisher got this and the digest was silently dropped, while the
+  // publisher reported published:true.
+  const { fetch: f } = stubFetch((url) =>
+    url.endsWith("/health") ? { status: 200 } : {
+      status: 200,
+      body: JSON.stringify({
+        ok: true,
+        result: {
+          text: "Not registered. Use `pi-messenger-swarm join` to join the agent mesh first.",
+          details: { mode: "error", error: "not_registered" },
+        },
+      }),
+    });
+  const out = await publishDigest({ enabled: true, channel: "debate" }, 1, emptyLedger("test-run", "review"), { fetch: f });
+  check("ok:true + details.error is NOT published (§13.47)", !out.published, JSON.stringify(out));
+  check("reason names not_registered",
+        !out.published && out.reason.includes("not_registered"), JSON.stringify(out));
+}
+{
+  // Same trap, different code: concurrency_limit / unknown_channel travel the same way.
+  const { fetch: f } = stubFetch((url) =>
+    url.endsWith("/health") ? { status: 200 } : {
+      status: 200,
+      body: JSON.stringify({ ok: true, result: { details: { mode: "error", error: "concurrency_limit" } } }),
+    });
+  const out = await publishDigest({ enabled: true, channel: "debate" }, 1, emptyLedger("test-run", "review"), { fetch: f });
+  check("any details.error is a failure", !out.published, JSON.stringify(out));
+}
+{
+  // And the happy path must still be recognized as success.
+  const { fetch: f } = stubFetch((url) =>
+    url.endsWith("/health") ? { status: 200 } : {
+      status: 200,
+      body: JSON.stringify({ ok: true, result: { text: "sent", details: { mode: "send" } } }),
+    });
+  const out = await publishDigest({ enabled: true, channel: "debate" }, 1, emptyLedger("test-run", "review"), { fetch: f });
+  check("a real success is still published", out.published, JSON.stringify(out));
 }
 
 // ===========================================================================
@@ -250,7 +291,10 @@ console.log("\n-- (h) orchestrator publishes one digest per merged ledger --");
   // §11: "one digest per merged ledger", plus one for the verdict.
   eq("one digest per merge, plus the verdict", published.length, merges.length + 1);
   check("a verdict digest was posted", posted.some((m) => m.startsWith("verdict · ")), posted.join(" | "));
-  check("round digests are labelled R1/R2", posted.some((m) => /^R[12] · /.test(m)), posted.join(" | "));
+  check("round digests are labelled R1/R2", posted.some((m) => /^R[12] /.test(m)), posted.join(" | "));
+  // Each round produces two merges; without the author they read as contradictory.
+  check("digests name the author whose merge triggered them",
+        posted.some((m) => /^R\d (ideator|skeptic) /.test(m)), posted.join(" | "));
   check("no publish_skipped when healthy", !events.some((e) => e.code === "publish_skipped"));
   rmSync(ws, { recursive: true, force: true });
 }

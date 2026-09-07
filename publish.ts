@@ -79,10 +79,14 @@ export function buildDigest(
   round: Round,
   ledger: Ledger,
   gateSeverity: "low" | "medium" | "high" | "critical" = "high",
+  role?: string,
 ): string {
   const label = round === "verdict" ? "verdict" : `R${round}`;
   const open = openAtOrAbove(ledger, gateSeverity);
-  const parts = [label, `${open.length} open ${gateSeverity}`];
+  // Name the author whose merge triggered this digest. Without it, consecutive digests
+  // for the same round look contradictory: the ideator's merge legitimately reports 0
+  // open high before the skeptic's claims land in the same round.
+  const parts = [role ? `${label} ${role}` : label, `${open.length} open ${gateSeverity}`];
   if (open.length > 0) {
     // Cap the id list: a 20-claim ledger would otherwise produce an unreadable line.
     const ids = open.map((c) => c.id);
@@ -113,6 +117,79 @@ export async function harnessIsUp(deps: PublishDeps = {}): Promise<boolean> {
 }
 
 /**
+ * Join the mesh as the publisher agent, creating the channel if needed.
+ *
+ * Required before `send`: the harness refuses posts from an unregistered agent with
+ * `{ok:true, result:{details:{error:'not_registered'}}}` — a *success-shaped* refusal
+ * that silently drops the message (§13.47). Registration is keyed on the `x-agent-name`
+ * header and persisted in the harness registry, so this is idempotent across runs and a
+ * second join is harmless.
+ *
+ * `create: true` because a `#debate` channel will not exist on a fresh machine, and a
+ * digest posted to a non-existent channel is another silent drop.
+ */
+export async function joinChannel(
+  cfg: PublishConfig,
+  deps: PublishDeps = {},
+): Promise<PublishOutcome> {
+  const f = deps.fetch ?? globalThis.fetch;
+  const base = deps.baseUrl ?? HARNESS_BASE_URL;
+  const timeoutMs = deps.timeoutMs ?? 3000;
+  const channel = channelTarget(cfg.channel).replace(/^#/, "");
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      const res = await f(`${base}/action`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-agent-name": deps.agentName ?? PUBLISHER_AGENT_NAME,
+        },
+        body: JSON.stringify({ action: "join", channel, create: true }),
+        signal: ctl.signal,
+      });
+      if (res.status !== 200) {
+        return { published: false, reason: `join returned HTTP ${res.status}` };
+      }
+      const refusal = harnessRefusal(await res.text());
+      return refusal
+        ? { published: false, reason: `join refused: ${refusal}` }
+        : { published: true, message: `joined #${channel}` };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (e) {
+    return { published: false, reason: `join transport error: ${(e as Error).message}` };
+  }
+}
+
+/**
+ * Extract an application-level refusal from a 200 response, or null if it succeeded.
+ *
+ * Shared because BOTH shapes must be checked and getting it wrong is silent (§13.47):
+ *   {ok:false, error}                                        — dispatch level
+ *   {ok:true, result:{details:{mode:'error', error:'…'}}}     — application level
+ */
+function harnessRefusal(text: string): string | null {
+  try {
+    const parsed = JSON.parse(text) as {
+      ok?: boolean;
+      error?: string;
+      result?: { details?: { mode?: string; error?: string } };
+    };
+    if (parsed.ok === false) return parsed.error ?? "unknown error";
+    const d = parsed.result?.details;
+    if (d?.error) return d.error;
+    if (d?.mode === "error") return "harness reported mode:error";
+    return null;
+  } catch {
+    // Non-JSON 200: treat as delivered rather than inventing a failure.
+    return null;
+  }
+}
+
+/**
  * Post one digest. Returns a structured outcome instead of throwing: the caller is the
  * orchestrator's merge path, and a channel being down must never break a debate.
  */
@@ -122,10 +199,11 @@ export async function publishDigest(
   ledger: Ledger,
   deps: PublishDeps = {},
   gateSeverity: "low" | "medium" | "high" | "critical" = "high",
+  role?: string,
 ): Promise<PublishOutcome> {
   if (!cfg.enabled) return { published: false, reason: "publish.enabled is false" };
 
-  const message = buildDigest(round, ledger, gateSeverity);
+  const message = buildDigest(round, ledger, gateSeverity, role);
 
   if (!(await harnessIsUp(deps))) {
     // Deliberately not an error the user must act on: publishing is optional, and the
@@ -140,45 +218,61 @@ export async function publishDigest(
   const f = deps.fetch ?? globalThis.fetch;
   const base = deps.baseUrl ?? HARNESS_BASE_URL;
   const timeoutMs = deps.timeoutMs ?? 3000;
-  try {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  const post = async (): Promise<{ status: number; text: string } | { error: string }> => {
     try {
-      const res = await f(`${base}/action`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          // §11: publish as the orchestrator, not as whoever's session is running.
-          "x-agent-name": deps.agentName ?? PUBLISHER_AGENT_NAME,
-        },
-        body: JSON.stringify({
-          action: "send",
-          to: channelTarget(cfg.channel),
-          message,
-        }),
-        signal: ctl.signal,
-      });
-      if (res.status !== 200) {
-        return { published: false, reason: `harness returned HTTP ${res.status}`, message };
-      }
-      // The harness answers 200 with {ok:false,error} for application-level failures
-      // (unknown channel, not joined, ...). 200 alone is not success.
-      const text = await res.text();
-      let ok = true;
-      let err: string | undefined;
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), timeoutMs);
       try {
-        const parsed = JSON.parse(text) as { ok?: boolean; error?: string };
-        if (parsed.ok === false) { ok = false; err = parsed.error; }
-      } catch {
-        // Non-JSON 200: treat as delivered rather than inventing a failure.
+        const res = await f(`${base}/action`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            // §11: publish as the orchestrator, not as whoever's session is running.
+            "x-agent-name": deps.agentName ?? PUBLISHER_AGENT_NAME,
+          },
+          body: JSON.stringify({
+            action: "send",
+            to: channelTarget(cfg.channel),
+            message,
+          }),
+          signal: ctl.signal,
+        });
+        return { status: res.status, text: await res.text() };
+      } finally {
+        clearTimeout(timer);
       }
-      return ok
-        ? { published: true, message }
-        : { published: false, reason: `harness refused: ${err ?? "unknown error"}`, message };
-    } finally {
-      clearTimeout(timer);
+    } catch (e) {
+      return { error: (e as Error).message };
     }
-  } catch (e) {
-    return { published: false, reason: `transport error: ${(e as Error).message}`, message };
+  };
+
+  let sent = await post();
+  if ("error" in sent) {
+    return { published: false, reason: `transport error: ${sent.error}`, message };
   }
+  if (sent.status !== 200) {
+    return { published: false, reason: `harness returned HTTP ${sent.status}`, message };
+  }
+  let refusal = harnessRefusal(sent.text);
+
+  // Self-heal the one refusal we can fix: an unregistered publisher. Join once, then
+  // retry exactly once. Not a loop — a persistent refusal must surface, not spin.
+  if (refusal === "not_registered") {
+    const joined = await joinChannel(cfg, deps);
+    if (!joined.published) {
+      return { published: false, reason: `not registered and ${joined.reason}`, message };
+    }
+    sent = await post();
+    if ("error" in sent) {
+      return { published: false, reason: `transport error after join: ${sent.error}`, message };
+    }
+    if (sent.status !== 200) {
+      return { published: false, reason: `harness returned HTTP ${sent.status} after join`, message };
+    }
+    refusal = harnessRefusal(sent.text);
+  }
+
+  return refusal === null
+    ? { published: true, message }
+    : { published: false, reason: `harness refused: ${refusal}`, message };
 }

@@ -159,12 +159,28 @@ verdict · 0 open high
 `channel` may be written `debate` or `#debate`; it is normalized to `#debate`, because
 `send` treats a bare name as a **direct message to an agent of that name**, not a channel.
 
-**It will never start the harness.** D11 forbids starting a daemon the extension did not
-start, so the publisher probes `GET /health` and declines if the harness is down. This is
-also why it speaks HTTP rather than shelling out to the CLI: `pi-messenger-swarm send`
-**auto-spawns a detached daemon** when the server is down, and that failure path **exits 0**
-(verified 2026-09-07 — see §13.46). Digests are observational: a down, wedged, or refusing
-harness records a `publish_skipped` event and never fails, stalls, or alters a run.
+It **joins the channel automatically** on first publish (`join --create`), because `send`
+is refused for an unregistered agent. It speaks HTTP rather than shelling out to the CLI,
+because `pi-messenger-swarm send` **auto-spawns a detached daemon** and that failure path
+**exits 0** (§13.46).
+
+If the harness is down the publisher declines and records `publish_skipped`; it does not
+start it. D11 has been retired (§13.47) — the extension may start the harness — but it must
+**never `--stop` or `--restart`** it, since that is the only irreversible action that can
+break a session it does not own.
+
+Digests are observational: a down, wedged, or refusing harness never fails, stalls, or
+alters a run.
+
+**Prerequisite on this machine:** `pi-messenger-swarm` ships without declaring its
+`@earendil-works/pi-coding-agent` dependency, so the daemon cannot start until it is
+linked (§13.47):
+
+```bash
+ln -s "$(npm root -g)/@earendil-works/pi-coding-agent" \
+  ~/.pi/agent/npm/node_modules/@earendil-works/pi-coding-agent
+pi-messenger-swarm --start
+```
 
 ---
 

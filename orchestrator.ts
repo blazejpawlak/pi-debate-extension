@@ -651,7 +651,7 @@ export class Orchestrator {
     // observational, so it must not make this method async (that would ripple through
     // the whole state machine) and must never delay or fail a turn. The promise is
     // tracked so shutdown can await in-flight posts instead of orphaning them.
-    this.publishMerge(round);
+    this.publishMerge(round, role);
     return true;
   }
 
@@ -660,7 +660,7 @@ export class Orchestrator {
    * event: a down harness is the normal case (D11 forbids us starting it), not an error
    * the user must act on.
    */
-  private publishMerge(round: Round): void {
+  private publishMerge(round: Round, role?: Role): void {
     if (!this.cfg.publish?.enabled) return;
     const p = publishDigest(
       this.cfg.publish,
@@ -668,6 +668,7 @@ export class Orchestrator {
       this.ledger,
       this.publishDeps,
       this.cfg.rounds.gateSeverity,
+      role,
     )
       .then((outcome) => {
         appendEvent(
