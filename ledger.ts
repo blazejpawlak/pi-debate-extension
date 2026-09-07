@@ -608,12 +608,28 @@ export function isUnverifiedHigh(c: Claim): boolean {
   return (c.severity === "high" || c.severity === "critical") && !hasEvidence(c);
 }
 
+/**
+ * Is this claim genuinely settled?
+ *
+ * §13.34 closed one hole here (disputed-without-evidence was treated as settled, letting
+ * the Skeptic end a debate by parking its own findings). WP8 exposed the **complement**:
+ * marking a claim `disputed` and *attaching evidence* also made it settled, so all five
+ * high-severity findings dropped out of the gate and the debate stopped at R2 with
+ * `openHigh: 0` while nothing had actually been resolved (§13.49).
+ *
+ * `disputed` means "the participants do not agree". That is unresolved BY DEFINITION,
+ * evidence or not — §8.4 says so too: the minority report is "never empty when any claim
+ * is `disputed`". So `disputed` is now always unsettled, and only `resolved` (with
+ * evidence) or `withdrawn` closes a claim.
+ */
 export function isUnsettled(c: Claim): boolean {
   if (c.status === "open") return true;
   if (c.status === "withdrawn") return false;
+  // Disagreement is not resolution, however well evidenced each side is.
+  if (c.status === "disputed") return true;
   const hasEvidence = !!c.evidence && !/^none\b/i.test(c.evidence);
   if (hasEvidence) return false;
-  // resolved/disputed but never evidenced -> the concern was never actually addressed.
+  // resolved but never evidenced -> the concern was never actually addressed.
   return true;
 }
 

@@ -73,10 +73,16 @@ console.log("\n-- §13.34: `disputed` must NOT close the gate (the exact WP5 exp
   ], "skeptic", "B", 2);
   eq("all three are now disputed",
      parked.ledger.claims.filter((c) => c.status === "disputed").length, 3);
-  // Evidence WAS supplied on these claims, so parking them is legitimate.
-  check("evidenced+disputed claims are genuinely settled",
-    !gateWantsAnotherRound(parked.ledger, "high"),
+  // §13.49 supersedes §13.34's reading here. §13.34 assumed parking an *evidenced* claim as
+  // disputed was legitimate, so only unevidenced ones kept the gate open. WP8 disproved
+  // that: the Skeptic disputed all five of its own evidenced high-severity findings and
+  // the gate closed at R2 with openHigh:0 — nothing resolved, debate over. `disputed`
+  // means the parties disagree, which §8.4 itself treats as unresolved ("the minority
+  // report is never empty when any claim is disputed").
+  check("evidenced+disputed claims are STILL unsettled (§13.49)",
+    gateWantsAnotherRound(parked.ledger, "high"),
     JSON.stringify(openAtOrAbove(parked.ledger, "high").map((c) => c.id)));
+  eq("all three remain on the gate", openAtOrAbove(parked.ledger, "high").length, 3);
 
   // Now the real WP5 case: high claims with NO evidence at all, parked as disputed.
   let l2 = emptyLedger("wp5repro2", "review");
@@ -112,9 +118,15 @@ console.log("\n-- §13.34: `disputed` must NOT close the gate (the exact WP5 exp
   const mk = (status: string, evidence: string | null) =>
     ({ status, evidence, severity: "high" } as never);
   check("isUnsettled: open", isUnsettled(mk("open", "cmd output")));
-  check("isUnsettled: disputed+evidence -> settled", !isUnsettled(mk("disputed", "cmd output")));
+  // §13.49: `disputed` is ALWAYS unsettled, evidence or not. WP8 showed the Skeptic can
+  // otherwise dispute its own findings with evidence attached and close the gate on five
+  // high-severity claims that nobody had resolved.
+  check("isUnsettled: disputed+evidence -> STILL unsettled (§13.49)",
+    isUnsettled(mk("disputed", "cmd output")));
   check("isUnsettled: disputed+null -> unsettled", isUnsettled(mk("disputed", null)));
   check("isUnsettled: disputed+'none' -> unsettled", isUnsettled(mk("disputed", "none")));
+  check("isUnsettled: resolved+evidence -> settled", !isUnsettled(mk("resolved", "cmd output")));
+  check("isUnsettled: resolved+null -> unsettled", isUnsettled(mk("resolved", null)));
   check("isUnsettled: withdrawn -> settled", !isUnsettled(mk("withdrawn", null)));
 }
 

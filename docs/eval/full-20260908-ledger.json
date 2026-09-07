@@ -1,0 +1,470 @@
+{
+  "runId": "20260908-000500-wp8b",
+  "mode": "review",
+  "version": 6,
+  "claims": [
+    {
+      "id": "A1",
+      "author": "A",
+      "round": 1,
+      "type": "FACT",
+      "text": "The plan enforces backup completion+verification as hard stop-gates before transfer and before cutover.",
+      "sourceRef": "§Implementation Phase 3 TASK-013; §Phase 5 TASK-033; RISK-001",
+      "evidence": "TASK-013 'Stop if the backup cannot be completed and verified'; TASK-033 final TM backup; RISK-001 mitigation cites both as hard gates.",
+      "confidence": 0.95,
+      "severity": "medium",
+      "status": "open",
+      "test": "Trace TASK-013/033 stop conditions and TEST-002.",
+      "history": []
+    },
+    {
+      "id": "A2",
+      "author": "A",
+      "round": 1,
+      "type": "FACT",
+      "text": "Three independent fallbacks (verified TM backup, encrypted external kit, retained powered-off source) exist before any destructive action.",
+      "sourceRef": "TASK-005; §Phase 4 TASK-018-024; TASK-063; PAT-006",
+      "evidence": "TASK-005 fallback hierarchy; Phase 4 checksummed external kit; TASK-063 old Mac powered off not erased.",
+      "confidence": 0.9,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "A3",
+      "author": "A",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "Logical Multica restore instead of VM-disk clone is justified because authoritative data is small while the VM carries rebuildable/stale artifacts.",
+      "sourceRef": "TASK-050; ALT-004; REQ-007; §Current Verified Baseline Multica data",
+      "evidence": "Baseline: pg volume ~465 MiB, uploads ~2.3 MiB/9 files; ALT-004 lists rebuildable images and old k8s remnants in the 66 GiB disk.",
+      "confidence": 0.88,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "A4",
+      "author": "A",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "Quarantining LaunchAgents and Rancher data before first tetsuo login is the correct sequencing to prevent KeepAlive thrash against missing dependencies.",
+      "sourceRef": "TASK-039-041; REQ-009; RISK-003",
+      "evidence": "RISK-003 names copied KeepAlive agents starting against missing deps/empty DB; quarantine occurs while logged in as migration-admin.",
+      "confidence": 0.87,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "A5",
+      "author": "A",
+      "round": 1,
+      "type": "FACT",
+      "text": "The pg-backup PATH defect is fixed at its source (services.json) with regeneration, not by hand-editing the generated plist.",
+      "sourceRef": "TASK-014; CON-007; RISK-008; FILE-011",
+      "evidence": "TASK-014 sets env:true and regenerates via multica-plist-gen --apply; RISK-008 warns against hand-editing.",
+      "confidence": 0.93,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": [
+        {
+          "round": 2,
+          "by": "A",
+          "change": "evidence",
+          "refutedPremise": null,
+          "note": "Stands, but refined by C6/B6: add precheck ordering and scoped apply to avoid redundant/over-broad regeneration."
+        }
+      ]
+    },
+    {
+      "id": "A6",
+      "author": "A",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "No hard verification gate confirms File Provider online-only content was hydrated or independently backed up before source retirement, creating a silent data-loss path.",
+      "sourceRef": "CON-003; RISK-005; TASK-026; TASK-031; §Section 6 TEST-014; TASK-066",
+      "evidence": "CON-003 warns size scans aren't presence proof; tasks flush/sync but forbid dereferencing placeholders; no TEST asserts hydration/backup of placeholder bytes before erase authorization.",
+      "confidence": 0.7,
+      "severity": "medium",
+      "status": "open",
+      "test": "Add TEST asserting per-provider hydration/backup status before TASK-066.",
+      "history": []
+    },
+    {
+      "id": "A7",
+      "author": "A",
+      "round": 1,
+      "type": "ASSUMPTION",
+      "text": "REQ-003 assumes Migration Assistant can independently deselect fine-grained categories (Applications, Privacy&Security, System&Network, Other Files) which Apple's actual UI may not expose at that granularity.",
+      "sourceRef": "REQ-003; TASK-037",
+      "evidence": "Plan lists four independent deselections; Apple MA typically exposes coarser buckets varying by macOS version; no accept-then-remediate fallback specified.",
+      "confidence": 0.6,
+      "severity": "medium",
+      "status": "open",
+      "test": "Verify selectable categories on macOS 26 MA; add fallback path in Phase 6.",
+      "history": []
+    },
+    {
+      "id": "A8",
+      "author": "A",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "Hardcoded literals (Node 24.14.1/24.15.0, Herdr 0.8.2, 13 agents) conflict with GUD-002's refresh mandate and should be sourced from Phase 2 refreshed inventory.",
+      "sourceRef": "TASK-046; TASK-054; GUD-002; §Phase 2",
+      "evidence": "TASK-046/054 pin literal versions from the 2026-09-04 baseline the intro says will drift; GUD-002 requires refresh before each gate.",
+      "confidence": 0.65,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "B1",
+      "author": "B",
+      "round": 1,
+      "type": "FACT",
+      "text": "The Time-Machine-only prerequisite branch still cannot satisfy the mandatory external-kit tasks.",
+      "sourceRef": "§Implementation Phase 1 TASK-003/TASK-005; §Implementation Phase 4 TASK-018–TASK-023; §Dependencies DEP-003",
+      "evidence": "Command: `diskutil list external physical; tmutil destinationinfo | awk '/^Name|^Kind/{print}'`. Output: external physical disks printed no entries; destinations were `Name: tm-blazej / Kind: Network` and `Name: macbook_air_backup / Kind: Network`. Seed grep confirms TASK-018–023 require an encrypted external volume.",
+      "confidence": 1,
+      "severity": "high",
+      "status": "open",
+      "test": "With no external disk mounted, identify a writable encrypted destination satisfying TASK-018 and TASK-021–023, or require both Time Machine and external APFS storage.",
+      "history": [
+        {
+          "round": 2,
+          "by": "B",
+          "change": "text; sourceRef; evidence; confidence 0.99->1; test",
+          "refutedPremise": null,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "B2",
+      "author": "B",
+      "round": 1,
+      "type": "FACT",
+      "text": "TASK-027's plain factory stop cannot establish global quiescence because active and trigger-less autopilots exist outside its scoped trigger iteration.",
+      "sourceRef": "§REQ-008; §Implementation Phase 5 TASK-027; §Testing TEST-011",
+      "evidence": "Command: `multica-ctl factory status; multica-ctl factory status --all-workspaces`; source grep of multica-ctl. Output: default status showed one enabled sms-go-tunnel heartbeat. All-workspaces showed `secure-m-systems active Capacity utilization (no triggers — event-driven)`, an enabled heartbeat, and active IBM entities. Source lines 2022–2028 use all-workspace entity pause only when `--all-workspaces`; otherwise `factory_each_trigger _factory_disable`.",
+      "confidence": 1,
+      "severity": "critical",
+      "status": "open",
+      "test": "After an authorized `factory stop --all-workspaces`, require every workspace entity paused and every trigger disabled, including no-trigger entities.",
+      "history": [
+        {
+          "round": 2,
+          "by": "B",
+          "change": "text; sourceRef; evidence; test",
+          "refutedPremise": null,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "B3",
+      "author": "B",
+      "round": 1,
+      "type": "FACT",
+      "text": "Migrated mkcert and backend private keys remain visible to bootstrap existence guards, so TASK-051 does not guarantee SEC-006 regeneration.",
+      "sourceRef": "§SEC-006; §Implementation Phase 4 TASK-021; §Implementation Phase 9 TASK-051",
+      "evidence": "Commands: metadata-only `find/stat`, bootstrap guard grep, and bootstrap dry-run. Output: `-r-------- .../mkcert/rootCA-key.pem`; `-rw------- ~/.multica/certs/localhost+1-key.pem`; guards only test rootCA.pem and certificate/key existence; dry-run printed `OK mkcert CA present`, `OK backend cert present`, and `0 failures`.",
+      "confidence": 1,
+      "severity": "high",
+      "status": "open",
+      "test": "Before destination bootstrap, prove migrated private keys are outside bootstrap-visible paths; afterward require different source/destination key hashes and valid destination trust.",
+      "history": [
+        {
+          "round": 2,
+          "by": "B",
+          "change": "text; sourceRef; evidence; test",
+          "refutedPremise": null,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "B4",
+      "author": "B",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "Sampling cannot satisfy the seed's requirement to preserve every Git file and all local commits.",
+      "sourceRef": "§REQ-002; §Implementation Phase 4 TASK-023/TASK-024; §Testing TEST-004",
+      "evidence": "Command: seed grep plus Git-object inventory. Output contrasts REQ-002 `Preserve every ... Git file and all local commits` with TASK-023 `sample-content hashes`; current ~/.multica contains `loose_objects=2263` and `packfiles=42`, while TEST-004 compares summaries rather than all object bytes.",
+      "confidence": 0.99,
+      "severity": "high",
+      "status": "open",
+      "test": "Compare sorted complete object-ID sets, all refs/reflogs, worktree administrative files, hooks, index files, and hashes of every non-object Git file source-to-kit-to-destination.",
+      "history": [
+        {
+          "round": 2,
+          "by": "B",
+          "change": "text; sourceRef; evidence; confidence 0.98->0.99; test",
+          "refutedPremise": null,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "B5",
+      "author": "B",
+      "round": 1,
+      "type": "FACT",
+      "text": "The resumability protocol still does not define durable task-level statuses or task-specific no-op prechecks, so A13's claim that PAT-001 bounds rerun harm is unproven.",
+      "sourceRef": "§REQ-015; §PAT-001–PAT-004; §FILE-002",
+      "evidence": "Command: `find . ... \\( -iname '*state*.json' -o -iname '*schema*' -o -iname '*template*' \\) -print; grep -nE 'state.json|completion record|first incomplete|exact blocker|safe retry' seed.md`. Output: schema/template search printed no files. Grep printed PAT-002 `Every phase writes a completion record`, PAT-003 failed-task blocker/retry recording, and PAT-004 `continue from the first incomplete task`; no successful-task checkpoint schema or task-specific idempotency rule was found.",
+      "confidence": 0.94,
+      "severity": "medium",
+      "status": "disputed",
+      "test": "In an authorized sandbox, interrupt after TASK-014 succeeds but before Phase 3 completes; give only state.json and evidence to a fresh executor and verify it deterministically skips TASK-014.",
+      "history": [
+        {
+          "round": 2,
+          "by": "B",
+          "change": "text; sourceRef; evidence; confidence 0.85->0.9; test",
+          "refutedPremise": null,
+          "note": null
+        },
+        {
+          "round": 3,
+          "by": "B",
+          "change": "type INFERENCE->FACT; text; evidence; confidence 0.9->0.94; test",
+          "refutedPremise": null,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "B6",
+      "author": "B",
+      "round": 1,
+      "type": "FACT",
+      "text": "TASK-014 remains stale on the inspected source and must not unconditionally apply the generator.",
+      "sourceRef": "§Implementation Phase 3 TASK-014–TASK-015; §PAT-001",
+      "evidence": "Command parsed `~/.multica/bin/launchd/services.json`, ran `multica-plist-gen --diff`, and read the installed plist PATH. Output: `service= pg-backup env= True`, `plist_gen_diff_rc=1`, and installed PATH contains `$HOME/.rd/bin`. Thus the prescribed env repair is already present while generator drift remains.",
+      "confidence": 1,
+      "severity": "high",
+      "status": "open",
+      "test": "Run the direct/listability backup precheck first; if healthy, skip TASK-014. If unhealthy, require a reviewed diff whose only intended change is pg-backup.",
+      "history": [
+        {
+          "round": 2,
+          "by": "B",
+          "change": "text; sourceRef; evidence; test",
+          "refutedPremise": null,
+          "note": null
+        },
+        {
+          "round": 3,
+          "by": "B",
+          "change": "text; sourceRef; evidence; test",
+          "refutedPremise": null,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "A9",
+      "author": "A",
+      "round": 2,
+      "type": "INFERENCE",
+      "text": "Accept B1. Fix: make an external encrypted APFS disk mandatory in DEP-003, or add an encrypted-TM-sparsebundle target so Phase 4 (TASK-018/021/022/023) has an executable destination when only network TM exists.",
+      "sourceRef": "TASK-003; TASK-018; TASK-021; TASK-022; DEP-003",
+      "evidence": "TASK-003 offers disk 'or' TM; TASK-018/021 unconditionally reference 'the encrypted external volume'; no TM branch downstream.",
+      "confidence": 0.9,
+      "severity": "medium",
+      "status": "open",
+      "test": "With no external disk, trace a valid destination for TASK-021; must exist after fix.",
+      "history": []
+    },
+    {
+      "id": "A10",
+      "author": "A",
+      "round": 2,
+      "type": "INFERENCE",
+      "text": "Accept B2. Fix: TASK-027/REQ-008 must assert zero active autopilots across all workspaces (entity-level pause), not merely 'every registered trigger disabled', to cover no-trigger event-driven autopilots.",
+      "sourceRef": "REQ-008; TASK-027; TEST-011",
+      "evidence": "TASK-027 wording 'every registered trigger reports disabled' excludes trigger-less event-driven entities.",
+      "confidence": 0.9,
+      "severity": "medium",
+      "status": "open",
+      "test": "After stop, enumerate all entities; proceed only if none active.",
+      "history": []
+    },
+    {
+      "id": "A11",
+      "author": "A",
+      "round": 2,
+      "type": "INFERENCE",
+      "text": "Accept B3 with nuance. TASK-051 intends mkcert regeneration, but no step purges migrated CA/server private keys first; add explicit delete-then-regenerate and verify destination key hashes differ (SEC-006).",
+      "sourceRef": "SEC-006; TASK-021; TASK-051",
+      "evidence": "TASK-021 copies ~/.multica certs; MA copies CAROOT; TASK-051 says regenerate but relies on bootstrap that may treat existing keys as success.",
+      "confidence": 0.85,
+      "severity": "medium",
+      "status": "open",
+      "test": "Pre-bootstrap: assert migrated private keys absent from bootstrap-visible paths.",
+      "history": []
+    },
+    {
+      "id": "A12",
+      "author": "A",
+      "round": 2,
+      "type": "INFERENCE",
+      "text": "WITHDRAWN as sufficient: git fsck --full plus object/pack-count parity does not prove Git completeness. Superseded by C1.",
+      "sourceRef": "REQ-002; TASK-023; TEST-004",
+      "evidence": "B8: fsck validates only objects present locally; equal counts do not imply equal object IDs and ignore refs/reflogs/index/hooks/worktree metadata.",
+      "confidence": 0.9,
+      "severity": "medium",
+      "status": "disputed",
+      "test": "Mutate an unsampled object's bytes without size change; git fsck must reject.",
+      "history": [
+        {
+          "round": 3,
+          "by": "A",
+          "change": "text; evidence; confidence 0.92->0.9; status open->disputed",
+          "refutedPremise": "that git fsck --full plus object-count parity proves complete Git equality",
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "A13",
+      "author": "A",
+      "round": 2,
+      "type": "INFERENCE",
+      "text": "Partial dispute of B5. Task-level state exists (per-task Completed/Date columns, FILE-002 state.json, PAT-003 blocker recording) and PAT-001 precheck gives rerun idempotency, bounding B5's harm. Residual gap is only an undefined state.json task-status schema.",
+      "sourceRef": "PAT-001; PAT-003; PAT-004; FILE-002",
+      "evidence": "PAT-001 mandates precheck→verification for every state-changing task; PAT-003 requires per-task blocker/retry record.",
+      "confidence": 0.75,
+      "severity": "medium",
+      "status": "open",
+      "test": "Interrupt after a state-changing task; precheck on rerun must detect applied state and no-op.",
+      "history": []
+    },
+    {
+      "id": "A14",
+      "author": "A",
+      "round": 2,
+      "type": "INFERENCE",
+      "text": "Accept B6; refines A5. Fix: run TASK-015 verification before TASK-014 so an already-healthy pg-backup skips regeneration, and scope/review any multica-plist-gen diff beyond pg-backup before --apply, per PAT-001 precheck.",
+      "sourceRef": "TASK-014; TASK-015; PAT-001; A5",
+      "evidence": "B6 shows env=true already applied and installed plist PATH includes ~/.rd/bin; unrelated services would also change on unconditional --apply.",
+      "confidence": 0.9,
+      "severity": "medium",
+      "status": "open",
+      "test": "Precheck via TASK-015; only apply if backup fails Docker resolution, and review diff scope.",
+      "history": []
+    },
+    {
+      "id": "B7",
+      "author": "B",
+      "round": 2,
+      "type": "INFERENCE",
+      "text": "Pre-login autostart quarantine covers LaunchAgents and Rancher but not migrated login-item or Background Task Management registrations.",
+      "sourceRef": "§Implementation Phase 2 TASK-007; §Implementation Phase 7 TASK-039–TASK-041; §Testing TEST-006",
+      "evidence": "Command: seed grep and `sfltool dumpbtm | grep -E '^ *(Name|Identifier):' | head -30`. Output included Adobe, Box, Cisco, GoogleUpdater, JAMF, and custom helper registrations. TASK-039 moves only LaunchAgents; TASK-041 lists runtime caches; TEST-006 tests only quarantined LaunchAgents/Rancher.",
+      "confidence": 0.82,
+      "severity": "medium",
+      "status": "disputed",
+      "test": "From migration-admin before first tetsuo login, enumerate destination BTM/login items and prove none can launch under tetsuo until explicitly reconstructed.",
+      "history": []
+    },
+    {
+      "id": "B8",
+      "author": "B",
+      "round": 2,
+      "type": "INFERENCE",
+      "text": "A12's proposed `git fsck --full` plus object-count parity still would not prove complete Git equality.",
+      "sourceRef": "§REQ-002; §Implementation Phase 4 TASK-023/TASK-024; §Testing TEST-004",
+      "evidence": "Current inventory contains 2,263 loose objects and 42 packfiles. `git fsck` validates objects present in one repository; equal counts do not prove equal object IDs and do not cover refs, reflogs, indexes, hooks, or worktree administrative metadata required by REQ-002.",
+      "confidence": 0.96,
+      "severity": "high",
+      "status": "open",
+      "test": "Construct authorized repositories with equal valid object counts but one differing unreachable object; compare fsck/count results, then compare sorted `git cat-file --batch-all-objects` object-ID sets and Git metadata hashes.",
+      "history": []
+    },
+    {
+      "id": "A15",
+      "author": "A",
+      "round": 3,
+      "type": "INFERENCE",
+      "text": "Accept B8. Correct Git verification: compare sorted `git cat-file --batch-all-objects` object-ID sets source->kit->destination, plus content hashes of packed-refs, all loose refs, reflogs, index files, hooks, and worktrees/*/{HEAD,commondir,gitdir}. This satisfies REQ-002 completeness where sampling (TASK-023) and A12 could not.",
+      "sourceRef": "REQ-002; TASK-023/TASK-024; TEST-004",
+      "evidence": "Object-ID set equality detects same-size corruption and missing unreachable objects; metadata hashing covers refs/reflogs/index/hooks/worktree files REQ-002 enumerates.",
+      "confidence": 0.93,
+      "severity": "medium",
+      "status": "open",
+      "test": "Two repos with equal valid object counts but one differing unreachable object: object-ID set comparison must flag mismatch; metadata hashing must flag altered reflog/hook.",
+      "history": []
+    },
+    {
+      "id": "A16",
+      "author": "A",
+      "round": 3,
+      "type": "INFERENCE",
+      "text": "Partial accept B7. Migrated BTM/SMAppService login items are not quarantined by TASK-039, but Applications-deselection (REQ-003/TASK-037) neutralizes vendor entries whose binaries live in /Applications (absent until reinstall). Residual risk is login items whose executables reside inside migrated home. Fix: capture destination `sfltool dumpbtm` from migration-admin, neutralize home-rooted login items before first tetsuo login, and extend TEST-006 to assert none can launch until reconstructed.",
+      "sourceRef": "TASK-007; TASK-037; TASK-039-041; TEST-006; REQ-003",
+      "evidence": "REQ-003 deselects Applications so /Applications-targeting BTM entries cannot launch; home-internal helpers survive intact via full account migration.",
+      "confidence": 0.78,
+      "severity": "medium",
+      "status": "open",
+      "test": "Enumerate destination BTM/login items pre-login; confirm only home-rooted ones remain launchable and are neutralized.",
+      "history": []
+    },
+    {
+      "id": "B9",
+      "author": "B",
+      "round": 3,
+      "type": "FACT",
+      "text": "A15's object-ID and Git-metadata comparison still omits unstaged and untracked working-tree content required by REQ-002.",
+      "sourceRef": "§REQ-002; §Implementation Phase 4 TASK-023–TASK-024; §Testing TEST-004",
+      "evidence": "Command searched real repositories for an untracked file, computed its OID without writing it, then queried the object database. Output: `repo=/Users/tetsuo/Projects/personal/openusage`, `untracked=plugins/opencode-zen/plugin.js`, `computed_oid=0fcb4ed3126f4d49a7d1de37dee2a13f4f8b0cd0`, `oid_already_in_object_db=no`. Object-set equality therefore cannot verify this file's copied bytes.",
+      "confidence": 1,
+      "severity": "high",
+      "status": "open",
+      "test": "Compare NUL-safe path/type/mode/content hashes for every repository working-tree file, including unstaged and untracked files, in addition to complete object-ID and Git-administrative metadata comparisons.",
+      "history": []
+    },
+    {
+      "id": "B10",
+      "author": "B",
+      "round": 3,
+      "type": "INFERENCE",
+      "text": "The plan does not verify that migrated `tetsuo` receives a FileVault secure token and can unlock the destination at preboot.",
+      "sourceRef": "§Implementation Phase 6 TASK-034–TASK-038; §Testing TEST-005; §Implementation Phase 11 TASK-063",
+      "evidence": "Command: `grep -nEi 'FileVault|secure.?token|unlock' seed.md`; output found FileVault enablement in TASK-034 and recovery custody in TASK-062, but no secure-token or migrated-user unlock gate. TEST-005 checks only username, home, symlinks, and worktrees. Read-only interface check `sysadminctl -secureTokenStatus tetsuo` returned `Secure token is ENABLED` on the source, proving this property is independently observable.",
+      "confidence": 0.91,
+      "severity": "medium",
+      "status": "open",
+      "test": "Before cutover, run `sysadminctl -secureTokenStatus tetsuo` on the destination and perform an authorized reboot/preboot observation proving `tetsuo` can unlock FileVault.",
+      "history": []
+    },
+    {
+      "id": "B11",
+      "author": "B",
+      "round": 3,
+      "type": "FACT",
+      "text": "The seed calls fresh dumps verified after archive listing but omits the pre-migration isolated restore drill required by its authoritative local restore guide.",
+      "sourceRef": "§Implementation Phase 3 TASK-015; §Implementation Phase 5 TASK-028; §Implementation Phase 9 TASK-050; §FILE-013",
+      "evidence": "Commands listed current dumps and ran archive listing. Output: newest dump `multica-20260907T003000Z`, size `139720084`; `pg_restore_list_rc=0 list_lines=792`. Guide grep printed only a `2026-07-16` drill record with `77/77 tables ... 0 restore errors` and line 40: `Re-run the drill ... before machine migration`. No seed task performs a fresh isolated restore before transfer. Actual drill not testable here because creating a disposable container/database would mutate state.",
+      "confidence": 0.97,
+      "severity": "high",
+      "status": "open",
+      "test": "Before TASK-033, restore the final dump into an isolated authorized PostgreSQL instance; require zero restore errors, expected extensions/schema, table inventory, and recorded row-count checks.",
+      "history": []
+    }
+  ],
+  "lint": [
+    {
+      "round": 2,
+      "code": "skeptic_under_min_flaws",
+      "detail": "2 new claims, minimum 3"
+    }
+  ]
+}
