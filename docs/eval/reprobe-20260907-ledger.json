@@ -1,0 +1,359 @@
+{
+  "runId": "20260907-173740-8dfc",
+  "mode": "review",
+  "version": 6,
+  "claims": [
+    {
+      "id": "A1",
+      "author": "A",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "Taking the final PostgreSQL dump and uploads archive with containers still running but triggers disabled (before stop/freeze) yields a consistent snapshot, so the 027→028→029 ordering is correct, not a mistake.",
+      "sourceRef": "§Implementation Phase 5 TASK-027..TASK-029",
+      "evidence": "TASK-028 explicitly dumps 'with triggers disabled and containers still running'; pg_dump is transactionally consistent.",
+      "confidence": 0.82,
+      "severity": "medium",
+      "status": "open",
+      "test": "Confirm the dump tool used is a transactional pg_dump and that no writer processes remain after trigger disable.",
+      "history": []
+    },
+    {
+      "id": "A2",
+      "author": "A",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "Not pre-creating 'tetsuo' and using a throwaway migration-admin avoids UID/home collisions when Migration Assistant recreates the account, directly serving GOAL-006.",
+      "sourceRef": "§Implementation Phase 6 TASK-034, TASK-037",
+      "evidence": "TASK-034 'create migration-admin; do not create tetsuo'; TASK-037 imports the complete tetsuo account.",
+      "confidence": 0.85,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "A3",
+      "author": "A",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "Quarantining ~/Library/LaunchAgents and runtime caches before first interactive login (Phase 7) is the correct mechanism to satisfy GOAL-007 by preventing copied jobs from starting.",
+      "sourceRef": "§Implementation Phase 7 TASK-039..TASK-041",
+      "evidence": "TASK-039 moves LaunchAgents atomically before login; TASK-038 says 'Do not log into tetsuo yet'.",
+      "confidence": 0.86,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "A4",
+      "author": "A",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "Keeping CrowdStrike/Jamf/Cisco/firewall enabled (TASK-035) can conflict with Migration Assistant pairing/transfer ports (TASK-036-038); the plan lacks a detect-and-reconcile step, risking a stall.",
+      "sourceRef": "§Implementation Phase 6 TASK-035, TASK-036, TASK-038",
+      "evidence": "TASK-035 forbids auto-disabling the firewall/endpoint agents; TASK-036 requires MA pairing and TASK-038 a 'verified fastest link'.",
+      "confidence": 0.6,
+      "severity": "medium",
+      "status": "open",
+      "test": "Verify MA over Thunderbolt bridge is unaffected by the app firewall/EDR; if network discovery is needed, define an allow rule or documented exception.",
+      "history": []
+    },
+    {
+      "id": "A5",
+      "author": "A",
+      "round": 1,
+      "type": "ASSUMPTION",
+      "text": "Auto-start quarantine is scoped to ~/Library/LaunchAgents only; user login items (SMAppService/LoginItems) and other per-user start hooks are not named and may still auto-launch.",
+      "sourceRef": "§Implementation Phase 7 TASK-039",
+      "evidence": "TASK-039 addresses only LaunchAgents; no task enumerates login items.",
+      "confidence": 0.55,
+      "severity": "medium",
+      "status": "open",
+      "test": "Enumerate SMAppService-registered login items in the migrated account and confirm none launch before dependency rebuild.",
+      "history": []
+    },
+    {
+      "id": "A6",
+      "author": "A",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "The pre-login validation gate (TASK-042) defines stop conditions but no rollback/recovery branch, leaving failure handling undefined.",
+      "sourceRef": "§Implementation Phase 7 TASK-042",
+      "evidence": "TASK-042 says 'Stop if ... any critical checksum differs' with no documented next action.",
+      "confidence": 0.7,
+      "severity": "medium",
+      "status": "open",
+      "test": "Add an explicit failure path (retain migration-admin, preserve quarantine, re-run from encrypted kit).",
+      "history": []
+    },
+    {
+      "id": "A7",
+      "author": "A",
+      "round": 1,
+      "type": "ASSUMPTION",
+      "text": "Installing all macOS updates on the M5 before migrating (TASK-034) assumes destination version >= source version; this is unstated and can enlarge the incompatible-items list at TASK-038.",
+      "sourceRef": "§Implementation Phase 6 TASK-034, TASK-038",
+      "evidence": "TASK-034 'install all available macOS updates'; TASK-038 'record every incompatible or skipped item'.",
+      "confidence": 0.5,
+      "severity": "medium",
+      "status": "open",
+      "test": "Assert and record source and destination macOS versions before MA.",
+      "history": []
+    },
+    {
+      "id": "A8",
+      "author": "A",
+      "round": 1,
+      "type": "FACT",
+      "text": "Every task in Phases 5-8 declares explicit dependencies, and TASK-042 gates on all three Phase 7 quarantine tasks before first login, giving a well-formed ordering DAG.",
+      "sourceRef": "§Implementation Phase 5..7 (Dependencies fields)",
+      "evidence": "Each TASK lists 'Dependencies:'; TASK-042 depends on TASK-039, TASK-040, TASK-041.",
+      "confidence": 0.9,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "A9",
+      "author": "A",
+      "round": 1,
+      "type": "ASSUMPTION",
+      "text": "Setting the new LaunchAgents directory to mode 0700 (TASK-039) diverges from the typical macOS 0755 default; over-restriction is low-risk but should be deliberate and recorded.",
+      "sourceRef": "§Implementation Phase 7 TASK-039",
+      "evidence": "TASK-039 'mode 0700'.",
+      "confidence": 0.4,
+      "severity": "medium",
+      "status": "open",
+      "test": "Confirm 0700 does not impede launchd loading of user agents post-rebuild.",
+      "history": []
+    },
+    {
+      "id": "B1",
+      "author": "B",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "TASK-029 omits persistent inhibition of the installed interval-driven binary watchdog; its restart path bypasses the maintenance marker.",
+      "sourceRef": "§Implementation Phase 5, GOAL-005 and TASK-029",
+      "evidence": "Executed python3 -B static inspection of multica-ctl arrays and installed watchdog plists/scripts. Output: SERVICES_START_ORDER: binary-watchdog=False, factory-watchdog=False; SERVICES_LONG_RUNNING: binary-watchdog=False, factory-watchdog=False; binary-watchdog: StartInterval=600, KeepAlive=False, maintenance references=0; 84: if FORCE=1 \"$HOME/.multica/bin/multica-ctl\" restart >> \"$LOG\" 2>&1; then. read(multica-ctl,201..220) shows load_one uses launchctl load -w; read(370..394) shows restart calls cmd_stop then cmd_start.",
+      "confidence": 0.96,
+      "severity": "high",
+      "status": "disputed",
+      "test": "Compare every installed scheduled Multica label against persistent inhibition coverage. Static exclusion confirmed; falsify operational exposure with read-only exported override evidence proving binary-watchdog is disabled throughout transfer. Executing restart or launchctl is prohibited here.",
+      "history": [
+        {
+          "round": 2,
+          "by": "B",
+          "change": "text; confidence 0.99->0.95; test",
+          "refutedPremise": null,
+          "note": "Responds to A10: interval jobs are not covered by the controller's long-running classification. No restart occurrence asserted."
+        },
+        {
+          "round": 3,
+          "by": "B",
+          "change": "confidence 0.95->0.96; evidence; test",
+          "refutedPremise": null,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "B2",
+      "author": "B",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "TASK-028 does not establish a writer barrier: an independent factory-watchdog sweep can mutate issues and rerun work after registered triggers are disabled.",
+      "sourceRef": "§Implementation Phase 5, TASK-025 through TASK-029",
+      "evidence": "Executed python3 -B static inspection. Output: factory-watchdog: StartInterval=900, KeepAlive=False, maintenance references=0; 377: sweep_out=\"$(\"$HOMEDIR/.multica/bin/multica-orphan-sweep\" --all 2>&1 | tail -1)\"; orphan-sweep: trigger references=0, maintenance references=0; 122: elif multica --workspace-id \"$ws\" issue label add \"$id\" \"$label_id\" >/dev/null 2>&1; then; 135: if multica --workspace-id \"$ws\" issue rerun \"$id\" >/dev/null 2>&1; then. Complete read of sourced lib/multica-env.sh revealed constants/helpers, no inhibition gate.",
+      "confidence": 0.97,
+      "severity": "high",
+      "status": "disputed",
+      "test": "Before TASK-028, verify persistent watchdog inhibition and drain queued/in-flight writers; maintain blocked write ingress across both captures. Static independent writer path confirmed; live mutation testing is prohibited.",
+      "history": [
+        {
+          "round": 2,
+          "by": "B",
+          "change": "text; confidence 0.98->0.96; test",
+          "refutedPremise": null,
+          "note": "Responds to A1 and A10: TASK-029 verification is too late to protect TASK-028. Actual snapshot corruption is not asserted."
+        },
+        {
+          "round": 3,
+          "by": "B",
+          "change": "confidence 0.96->0.97; evidence; test",
+          "refutedPremise": null,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "B3",
+      "author": "B",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "The source Rancher/Lima VM lacks an explicit shutdown gate before parity, final backup, and full-account transfer.",
+      "sourceRef": "§Implementation Phase 5, TASK-029 through TASK-033; §Implementation Phase 7, TASK-040",
+      "evidence": "Executed ps -axo pid,comm with runtime filter: 96685 /Applications/Rancher Desktop.app/Contents/Resources/resources/darwin/lima/bin/qemu-system-aarch64. Executed lsof -p 96685 -Fn with runtime/disk filter: n/Users/tetsuo/Library/Application Support/rancher-desktop/lima/0/basedisk; n/Users/tetsuo/Library/Application Support/rancher-desktop/lima/0/diffdisk. Static seed scan: rancher lines: [36]; Lima lines: []; QEMU lines: [].",
+      "confidence": 0.96,
+      "severity": "medium",
+      "status": "disputed",
+      "test": "At TASK-032, require no Rancher/Lima/QEMU runtime processes or open VM-disk handles. Current applicability confirmed; the future shutdown boundary is not testable here without executing migration.",
+      "history": [
+        {
+          "round": 2,
+          "by": "B",
+          "change": "text; confidence 0.97->0.94; test",
+          "refutedPremise": null,
+          "note": "Adds machine evidence supporting A11. The disk-handle probe was inconclusive; current runtime presence does not prove future backup corruption."
+        },
+        {
+          "round": 3,
+          "by": "B",
+          "change": "confidence 0.94->0.96; evidence; test",
+          "refutedPremise": null,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "A10",
+      "author": "A",
+      "round": 2,
+      "type": "ASSUMPTION",
+      "text": "B1/B2 now name a specific agent 'ai.multica.binary-watchdog' and a 'factory-watchdog sweep', neither of which (nor any watchdog entity) appears in the seed; they require it to be simultaneously not a 'registered trigger' (TASK-027) and not a 'long-running Multica label' (TASK-029). B named no refutedPremise against A10, so it stands and B1/B2 should be ASSUMPTION-grade.",
+      "sourceRef": "§Implementation Phase 5 TASK-027, TASK-029",
+      "evidence": "Seed strings: 'every registered trigger reports disabled'; 'Verify all long-running Multica labels are stopped/disabled'. No 'watchdog' token exists anywhere in the seed.",
+      "confidence": 0.72,
+      "severity": "medium",
+      "status": "disputed",
+      "test": "Identify an actual inhibition path covering these interval jobs before TASK-028. Their absence from seed vocabulary does not negate installed executable behavior; TASK-029 coverage cannot retroactively protect TASK-028.",
+      "history": [
+        {
+          "round": 3,
+          "by": "A",
+          "change": "text; sourceRef; evidence; confidence 0.7->0.72",
+          "refutedPremise": null,
+          "note": null
+        },
+        {
+          "round": 3,
+          "by": "B",
+          "change": "status open->disputed; test",
+          "refutedPremise": null,
+          "note": "No assertion that the jobs must be excluded from every possible interpretation of 'long-running'; the supplied controller implementation excludes them."
+        }
+      ]
+    },
+    {
+      "id": "A11",
+      "author": "A",
+      "round": 2,
+      "type": "INFERENCE",
+      "text": "Conceding B3's core gap: no Phase-5 task shuts down a source Rancher Desktop/Lima/QEMU VM (TASK-025 lists only VMware guests, TASK-031 quits only VMware Fusion, TASK-040 acts on the destination). Fix by extending TASK-025 detection and TASK-031 shutdown to Rancher/Lima/QEMU and adding a 'no open VM disk handles' check to the TASK-032 boundary.",
+      "sourceRef": "§Implementation Phase 5 TASK-025, TASK-031, TASK-032; §Implementation Phase 7 TASK-040",
+      "evidence": "TASK-025 enumerates 'VMware guests' only; TASK-031 'power off VMware guests, quit VMware Fusion'; TASK-040 quarantines rancher-desktop on the destination, not source.",
+      "confidence": 0.72,
+      "severity": "medium",
+      "status": "open",
+      "test": "Add source Rancher/Lima shutdown before TASK-032 parity; verify no runtime VM processes or open VM disk handles at the parity boundary.",
+      "history": []
+    },
+    {
+      "id": "A12",
+      "author": "A",
+      "round": 3,
+      "type": "INFERENCE",
+      "text": "TASK-031's explicit prohibition on evicting, hydrating, renaming, or recursively copying File Provider content is a correct safeguard that prevents mass-hydration/corruption of online-only cloud placeholders while still achieving GOAL-005 quiescence.",
+      "sourceRef": "§Implementation Phase 5 TASK-031; §Implementation Phase 6 TASK-037",
+      "evidence": "TASK-031: 'Do not evict, hydrate, rename, or recursively copy File Provider content during this task.'",
+      "confidence": 0.8,
+      "severity": "medium",
+      "status": "disputed",
+      "test": "Observe provider completion and post-quit activity, then compare placeholder/materialization state and recoverability before and after Migration Assistant; prohibition alone does not establish those results.",
+      "history": [
+        {
+          "round": 3,
+          "by": "B",
+          "change": "sourceRef; status open->disputed; test",
+          "refutedPremise": null,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "A13",
+      "author": "A",
+      "round": 3,
+      "type": "INFERENCE",
+      "text": "'critical checksums'/'critical' files are invoked at TASK-028, TASK-032, and TASK-042 but never defined; the parity/stop gates are only as strong as an undefined set. Improve by producing a single named critical-file manifest (with algorithm, e.g. SHA-256) once and reusing it across all three gates.",
+      "sourceRef": "§Implementation Phase 5 TASK-028, TASK-032; §Implementation Phase 7 TASK-042",
+      "evidence": "TASK-032 'critical checksums ... require source-to-kit parity'; TASK-042 'any critical checksum differs' — 'critical' scope and algorithm unspecified.",
+      "confidence": 0.68,
+      "severity": "medium",
+      "status": "disputed",
+      "test": "Inspect the earlier-phase manifest referenced by 'Refresh'; require its explicit file scope and algorithm to be reused at TASK-042. Earlier phases were not supplied, so global absence is unverified.",
+      "history": [
+        {
+          "round": 3,
+          "by": "B",
+          "change": "status open->disputed; test",
+          "refutedPremise": null,
+          "note": null
+        }
+      ]
+    }
+  ],
+  "lint": [
+    {
+      "round": 1,
+      "code": "high_severity_unverified",
+      "claimId": "B1"
+    },
+    {
+      "round": 1,
+      "code": "high_severity_unverified",
+      "claimId": "B2"
+    },
+    {
+      "round": 1,
+      "code": "conf_no_evidence",
+      "claimId": "B1"
+    },
+    {
+      "round": 1,
+      "code": "conf_no_evidence",
+      "claimId": "B2"
+    },
+    {
+      "round": 1,
+      "code": "conf_no_evidence",
+      "claimId": "B3"
+    },
+    {
+      "round": 2,
+      "code": "conf_no_evidence",
+      "claimId": "B1"
+    },
+    {
+      "round": 2,
+      "code": "conf_no_evidence",
+      "claimId": "B2"
+    },
+    {
+      "round": 2,
+      "code": "conf_no_evidence",
+      "claimId": "B3"
+    },
+    {
+      "round": 2,
+      "code": "skeptic_under_min_flaws",
+      "detail": "0 new claims, minimum 3"
+    },
+    {
+      "round": 3,
+      "code": "skeptic_under_min_flaws",
+      "detail": "0 new claims, minimum 3"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "pi-debate-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Multi-agent debate for pi: Ideator vs Skeptic with an independent Synthesizer judge.",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "bash test/run-all.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3"
+  }
+}

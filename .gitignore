@@ -1,0 +1,29 @@
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Dependencies/build outputs
+node_modules/
+dist/
+build/
+coverage/
+.nyc_output/
+
+# Local env/secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+auth.json
+credentials.json
+
+# Runtime scratch
+*.log
+.tmp/
+tmp/

@@ -1,0 +1,264 @@
+{
+  "runId": "20260907-121757-3bbf",
+  "mode": "review",
+  "version": 4,
+  "claims": [
+    {
+      "id": "A1",
+      "author": "A",
+      "round": 1,
+      "type": "FACT",
+      "text": "The final Multica dump (TASK-028) is taken after triggers are verified disabled (TASK-027) but while containers still run, yielding an application-consistent snapshot without racing background work.",
+      "sourceRef": "§Implementation Phase 5 TASK-027,TASK-028",
+      "evidence": "TASK-028 'With triggers disabled and containers still running, create a final ... dump'; depends on TASK-027.",
+      "confidence": 0.9,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "A2",
+      "author": "A",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "Phase 7 correctly closes the autostart gap Migration Assistant leaves: deselecting Applications/System still copies user LaunchAgents, and TASK-039's atomic move plus 'do not log into tetsuo yet' quarantines them before first login.",
+      "sourceRef": "§Implementation Phase 7 TASK-039; §Phase 6 TASK-037,TASK-038",
+      "evidence": "TASK-039 moves LaunchAgents to .migrated-disabled and creates empty 0700 dir; TASK-038 'Do not log into tetsuo yet'.",
+      "confidence": 0.85,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "A3",
+      "author": "A",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "Quarantine tasks are non-destructive (TASK-040/041 'do not delete'), preserving rollback while still preventing autostart.",
+      "sourceRef": "§Implementation Phase 7 TASK-040,TASK-041",
+      "evidence": "TASK-040 'Do not delete it'; TASK-041 'without deleting them'.",
+      "confidence": 0.88,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "A4",
+      "author": "A",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "Cloud/mail clients can resync between flush (TASK-026) and quit (TASK-031) because TASK-031 depends only on TASK-026 and network stays enabled; add a pre-quit quiescence re-check or disable sync first.",
+      "sourceRef": "§Implementation Phase 5 TASK-026,TASK-031",
+      "evidence": "TASK-031 'wait for cloud clients to finish, then quit'; depends on TASK-026 only; no network-off step.",
+      "confidence": 0.6,
+      "severity": "medium",
+      "status": "open",
+      "test": "Show whether any monitored client can initiate sync between TASK-026 completion and TASK-031 quit.",
+      "history": []
+    },
+    {
+      "id": "A5",
+      "author": "A",
+      "round": 1,
+      "type": "ASSUMPTION",
+      "text": "TASK-036 implies attempting to automate the security-code/pairing GUI, which is brittle and security-sensitive; it should be unconditionally user-driven.",
+      "sourceRef": "§Implementation Phase 6 TASK-036",
+      "evidence": "'The user performs only credential/security-code confirmation if GUI automation cannot.'",
+      "confidence": 0.55,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "A6",
+      "author": "A",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "TASK-033 creates a final Time Machine backup but never verifies restorability, weakening the rollback guarantee the plan otherwise implies.",
+      "sourceRef": "§Implementation Phase 5 TASK-033",
+      "evidence": "'Run a final Time Machine backup and verify the new snapshot timestamp' — timestamp only, no restore test.",
+      "confidence": 0.7,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "A7",
+      "author": "A",
+      "round": 1,
+      "type": "UNKNOWN",
+      "text": "Preconditions TASK-012, TASK-024, TASK-002, and TASK-022 are referenced as dependencies but do not appear in the seed, so their guarantees cannot be verified.",
+      "sourceRef": "§Implementation Phase 5 TASK-025; §Phase 6 TASK-034,TASK-037",
+      "evidence": "'Dependencies: TASK-012, TASK-024'; TASK-037 'unless TASK-022 recorded an approved omission'.",
+      "confidence": 0.8,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "A8",
+      "author": "A",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "TASK-034 enables FileVault and installs all updates before confirming sufficient free space, but encryption and updates change space and can force reboots; free space should be confirmed first and re-confirmed after updates.",
+      "sourceRef": "§Implementation Phase 6 TASK-034",
+      "evidence": "'Enable FileVault, install all available macOS updates, restart if required, and confirm sufficient free space' — space confirmed last.",
+      "confidence": 0.55,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "B1",
+      "author": "B",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "TASK-028 does not establish a write barrier spanning the PostgreSQL dump and uploads archive; server shutdown follows both captures.",
+      "sourceRef": "§Implementation Phase 5 TASK-025,TASK-027,TASK-028",
+      "evidence": null,
+      "confidence": 0.94,
+      "severity": "high",
+      "status": "disputed",
+      "test": "Inspect server mutation routes and existing worker/request logs for the capture interval. Falsify this concern by demonstrating all scheduled, event-driven, manual/API and in-flight writes are fenced and drained throughout both captures.",
+      "history": [
+        {
+          "round": 2,
+          "by": "B",
+          "change": "sourceRef; test",
+          "refutedPremise": null,
+          "note": "Challenges A1 and A9's sufficiency inference, not the existence of the narrower trigger gate."
+        }
+      ]
+    },
+    {
+      "id": "B2",
+      "author": "B",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "TASK-030–031 verify immediate cessation but do not demonstrate persistent restart suppression required by GOAL-005.",
+      "sourceRef": "§Implementation Phase 5 GOAL-005,TASK-029–031; §Implementation Phase 6 TASK-034–038",
+      "evidence": null,
+      "confidence": 0.9,
+      "severity": "high",
+      "status": "disputed",
+      "test": "Read the three scheduled scripts for maintenance-marker guards and inspect existing lifecycle records and persistent-disable evidence for Collie, KSeF and cloud clients. Comprehensive suppression of every applicable relaunch path would falsify the concern.",
+      "history": [
+        {
+          "round": 2,
+          "by": "B",
+          "change": "sourceRef; test",
+          "refutedPremise": null,
+          "note": "A10's long-running Multica persistence is supported; its claim that only Herdr remains exposed is not. No actual restart was attempted."
+        }
+      ]
+    },
+    {
+      "id": "B3",
+      "author": "B",
+      "round": 1,
+      "type": "INFERENCE",
+      "text": "The destination pre-login gate does not explicitly cover startup mechanisms outside the quarantined user LaunchAgents directory.",
+      "sourceRef": "§Implementation Phase 6 TASK-037–038; §Implementation Phase 7 TASK-039–042",
+      "evidence": null,
+      "confidence": 0.93,
+      "severity": "high",
+      "status": "disputed",
+      "test": "On the actual destination, inspect sfltool dumpbtm, Login Items and available scheduler records; resolve enabled entries to executables. Demonstrate that no copied runnable writer bypasses quarantine at first login.",
+      "history": [
+        {
+          "round": 2,
+          "by": "B",
+          "change": "sourceRef; test",
+          "refutedPremise": null,
+          "note": "Challenges A2/A3's comprehensive prevention inference. A11 proposes a useful gate but migration of specific registrations remains unverified."
+        }
+      ]
+    },
+    {
+      "id": "A9",
+      "author": "A",
+      "round": 2,
+      "type": "INFERENCE",
+      "text": "TASK-027 is an explicit write-initiator fence gate ('every registered trigger reports disabled'; 'Do not proceed if any trigger remains enabled') sequenced before TASK-028's dump, so a barrier design is present; B1 conflates unproven factory-stop drain semantics with absence of a barrier.",
+      "sourceRef": "§Implementation Phase 5 TASK-027,TASK-028",
+      "evidence": "TASK-027 verification gate; TASK-028 'with triggers disabled and containers still running' depends on TASK-027.",
+      "confidence": 0.8,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "A10",
+      "author": "A",
+      "round": 2,
+      "type": "FACT",
+      "text": "TASK-029 runs 'multica-ctl freeze -f' to persist disabled overrides and a maintenance marker and verifies labels stopped/disabled and containers down; this is persistent restart suppression for Multica, refuting B2's Multica core. B2 holds only for source-side Herdr (TASK-030 merely preserves plists), which is low-risk since the source is not logged into during transfer.",
+      "sourceRef": "§Implementation Phase 5 TASK-029,TASK-030",
+      "evidence": "TASK-029 'freeze -f to persist disabled overrides and a maintenance marker'; TASK-030 'Preserve their plists and logs' with no persisted disable.",
+      "confidence": 0.82,
+      "severity": "medium",
+      "status": "open",
+      "test": null,
+      "history": []
+    },
+    {
+      "id": "A11",
+      "author": "A",
+      "round": 2,
+      "type": "INFERENCE",
+      "text": "Concede B3: user-scoped Login Items and SMAppService background items (sfltool dumpbtm) plus user cron are migrated inside the tetsuo account but outside ~/Library/LaunchAgents, so TASK-039's quarantine and TASK-042's validation do not cover them. Fix: extend TASK-039/042 to enumerate dumpbtm and Login Items and quarantine/disable before first login. System LaunchDaemons are excluded (System deselected in TASK-037), bounding exposure to user scope.",
+      "sourceRef": "§Implementation Phase 7 TASK-039,TASK-042; §Phase 6 TASK-037",
+      "evidence": "TASK-039 moves only LaunchAgents; TASK-042 validates ownership/permissions/checksums, not startup registrations; TASK-037 deselects Applications/System but keeps full user account incl. user Library.",
+      "confidence": 0.8,
+      "severity": "medium",
+      "status": "open",
+      "test": "On destination as migration-admin, run sfltool dumpbtm and inspect Login Items; resolve enabled entries to executables; confirm none launch pre-login.",
+      "history": []
+    }
+  ],
+  "lint": [
+    {
+      "round": 1,
+      "code": "conf_no_evidence",
+      "claimId": "B1"
+    },
+    {
+      "round": 1,
+      "code": "conf_no_evidence",
+      "claimId": "B2"
+    },
+    {
+      "round": 1,
+      "code": "conf_no_evidence",
+      "claimId": "B3"
+    },
+    {
+      "round": 2,
+      "code": "conf_no_evidence",
+      "claimId": "B1"
+    },
+    {
+      "round": 2,
+      "code": "conf_no_evidence",
+      "claimId": "B2"
+    },
+    {
+      "round": 2,
+      "code": "conf_no_evidence",
+      "claimId": "B3"
+    },
+    {
+      "round": 2,
+      "code": "skeptic_under_min_flaws",
+      "detail": "0 new claims, minimum 3"
+    }
+  ]
+}

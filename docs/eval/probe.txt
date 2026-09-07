@@ -1,0 +1,144 @@
+# WP0 — Model smoke test
+Date: 2026-09-06T20:33:06.643Z
+pi: 0.85.1   workspace: /Users/tetsuo/Desktop/mac-migration
+
+## Per-probe results
+
+### a-ideator — openrouter/anthropic/claude-opus-4-8
+- exitCode: 0
+- wall time: 1856 ms
+- session header: true   agent_end: true
+- assistant message_end count: 1
+- stopReasons: ["stop"]
+- content block types: [["text"]]
+- SUMMED usage.cost.total: 0.00050306
+- LAST message cost.total: 0.00050306
+- summed totalTokens: 674   cacheRead: 0
+- tool_execution_start: []
+- non-assistant message_end roles: ["user"]
+- parse failures: 0
+- final text (first 300 chars): "ok"
+- stderr tail: "Warning: Model \"anthropic/claude-opus-4-8\" not found for provider \"openrouter\". Using custom model id.\n"
+
+### a-skeptic — openai-codex/gpt-6-astra
+- exitCode: 0
+- wall time: 6465 ms
+- session header: true   agent_end: true
+- assistant message_end count: 1
+- stopReasons: ["stop"]
+- content block types: [["text"]]
+- SUMMED usage.cost.total: 0.00442
+- LAST message cost.total: 0.00442
+- summed totalTokens: 422   cacheRead: 0
+- tool_execution_start: []
+- non-assistant message_end roles: ["user"]
+- parse failures: 0
+- final text (first 300 chars): "ok"
+
+### a-synthesizer — openrouter/google/gemini-3.1-pro-preview
+- exitCode: 0
+- wall time: 3481 ms
+- session header: true   agent_end: true
+- assistant message_end count: 1
+- stopReasons: ["stop"]
+- content block types: [["text"]]
+- SUMMED usage.cost.total: 0.001754
+- LAST message cost.total: 0.001754
+- summed totalTokens: 542   cacheRead: 0
+- tool_execution_start: []
+- non-assistant message_end roles: ["user"]
+- parse failures: 0
+- final text (first 300 chars): "ok"
+
+### b-toolloop — openai-codex/gpt-6-astra
+- exitCode: 0
+- wall time: 14145 ms
+- session header: true   agent_end: true
+- assistant message_end count: 3
+- stopReasons: ["toolUse","toolUse","stop"]
+- content block types: [["toolCall"],["toolCall"],["text"]]
+- SUMMED usage.cost.total: 0.029696
+- LAST message cost.total: 0.012622000000000001
+- summed totalTokens: 4664   cacheRead: 2176
+- tool_execution_start: ["bash","grep"]
+- non-assistant message_end roles: ["user","toolResult","toolResult"]
+- parse failures: 0
+- final text (first 300 chars): "> MARKER-LINE-7f3a: the debate probe seed file.\n\ndone"
+
+## Acceptance checks
+
+- [PASS] a.stop[openrouter/anthropic/claude-opus-4-8] — stopReason="stop" exit=0
+- [PASS] a.cost[openrouter/anthropic/claude-opus-4-8] — summed cost.total=0.00050306 tokens=674
+- [PASS] a.stop[openai-codex/gpt-6-astra] — stopReason="stop" exit=0
+- [PASS] a.cost[openai-codex/gpt-6-astra] — summed cost.total=0.00442 tokens=422
+- [PASS] a.stop[openrouter/google/gemini-3.1-pro-preview] — stopReason="stop" exit=0
+- [PASS] a.cost[openrouter/google/gemini-3.1-pro-preview] — summed cost.total=0.001754 tokens=542
+- [PASS] b.bash_granted — tool_execution_start toolNames=[bash, grep]
+- [PASS] c.multi_message — assistant message_end count=3
+- [PASS] c.sum_exceeds_last — summed=0.029696 last=0.012622000000000001 ratio=2.35x
+- [PASS] d.file_reached — final text contains marker
+
+## Verdict: ALL PASS
+
+---
+
+## WP0 addendum — roster resolution detail
+
+### Attempt 1 used the §4 default roster and FAILED 3/10 checks
+Preserved verbatim at `.debate/probe-attempt1-default-roster.txt`. Root causes, each distinct:
+
+1. `ibm-services-essentials/claude-opus-5` — authenticates and returns
+   stopReason:"stop", but `usage.cost.total == 0`. Not transient: ALL 19 models in
+   `~/.pi/agent/ibm-services-essentials-models.json` ship a zero cost table
+   ({"input":0,"output":0,"cacheRead":0,"cacheWrite":0}). This provider is a fixed-credit
+   plan (status-line-ibm-credits.json: 475.41/500 credits spent), so pi has no per-token
+   price to multiply. Consequence: the D9 $5 run cap and the $2 per-turn ceiling would both
+   be UNENFORCEABLE for the Ideator role — cost would always sum to 0 and never trip.
+2. `opencode/gemini-3.1-pro` — stopReason:"error",
+   errorMessage 401 CreditsError "Insufficient balance". Pricing table is fine
+   (input:2/output:12); the opencode workspace simply has no balance. All opencode
+   models are therefore unusable, incl. `opencode/claude-opus-5` (404) and the §4
+   cheap-tier entry `opencode/gemini-3.5-flash`.
+3. Only ONE provider is present in auth.json: `openai-codex`. openrouter works via the
+   OPENROUTER_KEY env var.
+
+### Swaps applied (both are §4-sanctioned alternates or same-family equivalents)
+- Synthesizer: `opencode/gemini-3.1-pro` -> `openrouter/google/gemini-3.1-pro-preview`.
+  This is the exact alternate §4 already lists ("Synthesizer via OpenRouter instead of opencode").
+  Google family preserved.
+- Ideator: `ibm-services-essentials/claude-opus-5` -> `openrouter/anthropic/claude-opus-4-8`.
+  Anthropic family preserved, so D8's three-distinct-families property holds.
+  Verified genuinely Anthropic: asked it directly -> "I'm Claude, made by Anthropic."
+  Stable across 3 consecutive runs at identical cost 0.00050087.
+
+### OpenRouter model-id gotcha (matters for §4 "first slash only" parsing)
+`--provider openrouter --model anthropic/claude-opus-4-8` (HYPHENATED) works and bills.
+The ids as listed in models-store.json are DOTTED (`anthropic/claude-opus-4.8`,
+`anthropic/claude-opus-5`) and both 404 through this gateway. The hyphenated form emits
+`Warning: Model "..." not found for provider "openrouter". Using custom model id.` on
+stderr but is passed through and served correctly; `message.model` echoes back exactly
+what was sent, so there is no silent substitution. Do NOT "fix" the persona frontmatter
+to the dotted store ids - that breaks it. The §4 first-slash-only split rule is unaffected
+and correct: openrouter/anthropic/claude-opus-4-8 -> provider=openrouter,
+model=anthropic/claude-opus-4-8.
+
+### Stream-shape findings that change the runner implementation
+- `message_end` fires for NON-assistant messages too. Observed roles in the tool probe:
+  ["user","toolResult","toolResult"] alongside 3 assistant messages. §7.1 says "fires for
+  every assistant message", which is true but incomplete. runner/direct.ts MUST filter
+  `message.role === "assistant"` before summing usage, or it will iterate messages that
+  have `usage: undefined` and (if summing naively) count phantom entries in messageCount.
+- The §7.1 accounting rule is empirically CONFIRMED and material: summed cost 0.029696 vs
+  last-message-only 0.012622 = 2.35x undercount on a 2-tool-call turn (attempt 1 measured
+  5.69x on the same probe shape). A 6-tool-call Skeptic turn will undercount far worse.
+- Assistant content block types per message: [["toolCall"],["toolCall"],["text"]]. Only the
+  FINAL assistant message carried text; intermediate ones were pure toolCall. Confirms
+  "text = final message_end, text blocks only, skip thinking/toolCall".
+- `cacheRead` was already 2176 tokens WITHIN a single tool-using turn (the agentic loop
+  re-sends the prefix and the provider caches it). So §13 item 8 is partly answered
+  already: caching engages intra-turn on openai-codex. Cross-turn caching still to be
+  measured in WP4.
+- `--` and `@path` both behave exactly as §6.2 states: the attached file's content reached
+  the model (it quoted MARKER-LINE-7f3a verbatim) without appearing in argv as text.
+- `--tools read,grep,find,ls,bash` genuinely grants bash: tool_execution_start fired with
+  toolName "bash". The silent-drop risk in §7.3 did not materialize.
