@@ -25,6 +25,7 @@ import {
 } from "./manifest.ts";
 import { ensureRunDirs, runPaths, turnFileName, listRuns, type RunPaths } from "./paths.ts";
 import { buildVerdict, writeVerdict, appendLessons, buildSummary } from "./verdict.ts";
+import { publishDigest, type PublishDeps } from "./publish.ts";
 import type { Role, Round, TurnRequest, TurnResult, TurnRunner } from "./runner/types.ts";
 
 export interface OrchestratorOptions {
@@ -36,6 +37,8 @@ export interface OrchestratorOptions {
   now?: () => number;
   onProgress?: (p: Progress) => void;
   signal?: AbortSignal;
+  /** Injected transport for channel digests (§11 WP7). Tests pass a stub fetch. */
+  publishDeps?: PublishDeps;
 }
 
 export interface Progress {
@@ -107,6 +110,10 @@ export class Orchestrator {
   private startedAtMs = 0;
   private abortController = new AbortController();
   private aborted = false;
+  /** In-flight channel digests (§11 WP7), awaited before finalize. */
+  private inFlightPublishes = new Set<Promise<void>>();
+  /** Injected transport for the publisher, so tests never touch the network. */
+  private publishDeps: PublishDeps = {};
   /** Verdict body from the Synthesizer, kept for the summary. */
   private verdictBody: string | null = null;
   /** Resolved per-role config, computed once (§13.28). */
@@ -141,6 +148,7 @@ export class Orchestrator {
     this.now = opts.now ?? (() => Date.now());
     this.onProgress = opts.onProgress;
     this.externalSignal = opts.signal;
+    this.publishDeps = opts.publishDeps ?? {};
   }
 
   get runId(): string { return this.manifest?.runId; }
@@ -298,17 +306,25 @@ export class Orchestrator {
       // §5.1 early abort: in review mode, if BOTH R1 turns failed there is nothing to
       // judge, and a verdict over an empty ledger is worse than no verdict.
       if (this.manifest.status === "failed") {
+        await this.settlePublishes();
         return this.finalize(null);
       }
       if (this.aborted) {
+        await this.settlePublishes();
         return this.finalize(null);
       }
 
-      return this.finalize(await this.runVerdict(mode));
+      const body = await this.runVerdict(mode);
+      // A final digest for the verdict itself, so a channel reader sees the outcome and
+      // not just the intermediate rounds.
+      this.publishMerge("verdict");
+      await this.settlePublishes();
+      return this.finalize(body);
     } catch (e) {
       appendEvent(this.paths.events, "run_error", { error: (e as Error).message });
       this.manifest.status = this.manifest.status === "running" ? "failed" : this.manifest.status;
       this.note(`Orchestrator error: ${(e as Error).message}`);
+      await this.settlePublishes();
       return this.finalize(null);
     }
   }
@@ -631,7 +647,54 @@ export class Orchestrator {
       round, role, added: merged.added, updated: merged.updated,
       version: merged.ledger.version, idMap: merged.idMap,
     });
+    // §11 WP7: one digest per merged ledger. Fire-and-forget on purpose — publishing is
+    // observational, so it must not make this method async (that would ripple through
+    // the whole state machine) and must never delay or fail a turn. The promise is
+    // tracked so shutdown can await in-flight posts instead of orphaning them.
+    this.publishMerge(round);
     return true;
+  }
+
+  /**
+   * Post a channel digest for the current ledger state. Swallows every failure into an
+   * event: a down harness is the normal case (D11 forbids us starting it), not an error
+   * the user must act on.
+   */
+  private publishMerge(round: Round): void {
+    if (!this.cfg.publish?.enabled) return;
+    const p = publishDigest(
+      this.cfg.publish,
+      round,
+      this.ledger,
+      this.publishDeps,
+      this.cfg.rounds.gateSeverity,
+    )
+      .then((outcome) => {
+        appendEvent(
+          this.paths.events,
+          outcome.published ? "published" : "publish_skipped",
+          outcome.published
+            ? { round, channel: this.cfg.publish.channel, digest: outcome.message }
+            : { round, channel: this.cfg.publish.channel, reason: outcome.reason },
+        );
+      })
+      .catch((e: unknown) => {
+        // publishDigest is written not to throw; this is belt-and-braces so an
+        // unexpected throw can never become an unhandled rejection mid-debate.
+        try {
+          appendEvent(this.paths.events, "publish_skipped", {
+            round, reason: `publisher threw: ${(e as Error).message}`,
+          });
+        } catch { /* events file unwritable; nothing useful left to do */ }
+      })
+      .finally(() => { this.inFlightPublishes.delete(p); });
+    this.inFlightPublishes.add(p);
+  }
+
+  /** Await any in-flight digests. Called before finalize so events.jsonl is complete. */
+  private async settlePublishes(): Promise<void> {
+    if (this.inFlightPublishes.size === 0) return;
+    await Promise.allSettled([...this.inFlightPublishes]);
   }
 
   // ------------------------------------------------------------------

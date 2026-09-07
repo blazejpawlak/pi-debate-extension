@@ -5,10 +5,11 @@ A pi coding-agent extension that runs a structured multi-model debate: Ideator v
 ## Status
 
 - WP0–WP6 complete.
-- Offline fake-runner suite: 465 checks passing.
+- Offline fake-runner suite: 531 checks passing.
 - Typecheck clean for pure extension logic.
 - WP6 complete: abort persistence, verdict entry renderer, full-verdict injection, testable stale-run sweep.
-- WP7 optional (harness adapter + publisher, not started). WP8 pending: the full 51.8KB evaluation.
+- WP7 publisher done (`publish.ts`, swarm-channel digests, off by default). The `harness` **runner** half is deliberately unbuilt: it would drop usage/cost reporting and degrade budget enforcement to time only (§1.1/§6.4).
+- WP8 pending: the full 51.8KB evaluation, still the tiebreaker on value.
 
 See `docs/handoff-wp6.md` for the latest handoff and `docs/design/debate-swarm-design.md` for the work order.
 
@@ -45,6 +46,7 @@ This keeps the GitHub repository as the editable source while pi continues to au
 | `verdict.ts` | Verdict rendering |
 | `manifest.ts` | Run manifest and `events.jsonl` |
 | `runner/` | `direct.ts` (real models), `fake.ts` (offline), shared types |
+| `publish.ts` | Optional swarm-channel digests; HTTP-only, never starts the harness (D11) |
 | `personas/` | Ideator, Skeptic, Synthesizer persona bodies |
 | `test/` | Offline suite plus one explicit real-token test |
 | `docs/design/` | Work order and the external design review |

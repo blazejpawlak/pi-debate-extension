@@ -142,6 +142,32 @@ for it.
 
 ---
 
+## Swarm-channel digests (`publish`)
+
+```json
+{ "publish": { "enabled": true, "channel": "debate" } }
+```
+
+Off by default. When enabled, posts one short digest per merged ledger plus one for the
+verdict, so a run is visible in a `pi-messenger-swarm` channel:
+
+```
+R2 · 3 open high · B1,B4,B7
+verdict · 0 open high
+```
+
+`channel` may be written `debate` or `#debate`; it is normalized to `#debate`, because
+`send` treats a bare name as a **direct message to an agent of that name**, not a channel.
+
+**It will never start the harness.** D11 forbids starting a daemon the extension did not
+start, so the publisher probes `GET /health` and declines if the harness is down. This is
+also why it speaks HTTP rather than shelling out to the CLI: `pi-messenger-swarm send`
+**auto-spawns a detached daemon** when the server is down, and that failure path **exits 0**
+(verified 2026-09-07 — see §13.46). Digests are observational: a down, wedged, or refusing
+harness records a `publish_skipped` event and never fails, stalls, or alters a run.
+
+---
+
 ## Known free models on this machine
 
 Verified individually 2026-09-07 against the IBM Advantage Credits dashboard:

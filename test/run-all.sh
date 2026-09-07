@@ -4,7 +4,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 fail=0
-for t in test/wp1.test.ts test/ledger.test.ts test/roles.test.ts test/wp5-fixes.test.ts test/e2e-fake.ts test/wp6.test.ts test/runner-direct-offline.test.ts; do
+for t in test/wp1.test.ts test/ledger.test.ts test/roles.test.ts test/wp5-fixes.test.ts test/e2e-fake.ts test/wp6.test.ts test/wp7.test.ts test/runner-direct-offline.test.ts; do
   printf '%-42s ' "$t"
   out=$(npx tsx "$t" 2>&1) || fail=1
   echo "$out" | tail -1
