@@ -23,7 +23,7 @@ import {
   newManifest, writeManifest, readManifest, recomputeTotals, appendEvent,
   type Manifest, type RunStatus, type TurnRecord,
 } from "./manifest.ts";
-import { ensureRunDirs, runPaths, turnFileName, type RunPaths } from "./paths.ts";
+import { ensureRunDirs, runPaths, turnFileName, listRuns, type RunPaths } from "./paths.ts";
 import { buildVerdict, writeVerdict, appendLessons, buildSummary } from "./verdict.ts";
 import type { Role, Round, TurnRequest, TurnResult, TurnRunner } from "./runner/types.ts";
 
@@ -147,9 +147,37 @@ export class Orchestrator {
   get currentLedger(): Ledger { return this.ledger; }
   get currentManifest(): Manifest { return this.manifest; }
 
+  /**
+   * Abort the run and persist `status: "aborted"` immediately (WP6 acceptance).
+   *
+   * The in-memory flag alone is not enough. `drive()` also writes `aborted` when its
+   * loop unwinds, but that only happens if the loop *gets* to unwind: a hard kill, a
+   * child that ignores the signal, or a crash between turns would leave the manifest
+   * saying `running` forever, and the `session_start` sweep would then have to guess.
+   * WP6 requires "abort kills and marks aborted", so persist here and let `drive()`'s
+   * later write be a harmless no-op.
+   *
+   * Idempotent and safe before `init()`: `/debate abort` can arrive twice, or before
+   * any run directory exists, and neither may throw into the caller's hook.
+   */
   abort(): void {
+    const first = !this.aborted;
     this.aborted = true;
     this.abortController.abort();
+    if (!first) return;
+    // Nothing to persist until init() has built the paths and manifest.
+    if (!this.paths || !this.manifest) return;
+    // A finished run keeps its real outcome; only an in-flight run becomes aborted.
+    if (this.manifest.status !== "running") return;
+    try {
+      this.manifest.status = "aborted";
+      this.manifest.endedAt = new Date().toISOString();
+      this.note("Run aborted by user.");
+      appendEvent(this.paths.events, "aborted", { at: this.manifest.endedAt });
+      this.saveManifest();
+    } catch {
+      // Best effort: an unwritable manifest must not mask the abort itself.
+    }
   }
 
   // ------------------------------------------------------------------
@@ -259,8 +287,12 @@ export class Orchestrator {
       }
 
       if (this.aborted) {
-        this.manifest.status = "aborted";
-        this.note("Run aborted by user.");
+        // abort() already persisted status/endedAt/note; only cover the case where the
+        // flag was set without going through abort() (e.g. the external signal fired).
+        if (this.manifest.status === "running") {
+          this.manifest.status = "aborted";
+          this.note("Run aborted by user.");
+        }
       }
 
       // §5.1 early abort: in review mode, if BOTH R1 turns failed there is nothing to
@@ -813,4 +845,43 @@ export class Orchestrator {
       costTrusted: this.manifest.costTrusted !== false,
     });
   }
+}
+
+/**
+ * §9.4 stale-run sweep, for `session_start`.
+ *
+ * A run whose owning session died leaves `status: "running"` on disk with no process
+ * behind it. Mark those `aborted` so `/debate status` and the widget do not report a
+ * phantom live run, and so `resume` sees a resumable terminal state.
+ *
+ * Extracted from index.ts because index.ts cannot be imported by tests (§13.21) — the
+ * WP6 acceptance criterion "abort kills and marks aborted" is only meaningfully proven
+ * against files, and that needs an importable function.
+ *
+ * Returns the run ids it changed, so the caller can log or report. Never throws:
+ * startup must not fail because one manifest is unreadable.
+ */
+export function sweepStaleRuns(workspace: string): string[] {
+  const changed: string[] = [];
+  try {
+    for (const r of listRuns(workspace)) {
+      if (r.status !== "running") continue;
+      try {
+        const m = readManifest(r.manifestPath);
+        if (m.status !== "running") continue; // re-read guard: someone else finished it
+        m.status = "aborted";
+        m.endedAt ??= new Date().toISOString();
+        (m.notes ??= []).push(
+          "Marked aborted by session_start sweep: the owning session died.",
+        );
+        writeManifest(r.manifestPath, m);
+        changed.push(r.runId);
+      } catch {
+        // One corrupt run must not stop the sweep from cleaning up the others.
+      }
+    }
+  } catch {
+    // No .debate/runs yet, or an unreadable directory: nothing to sweep.
+  }
+  return changed;
 }

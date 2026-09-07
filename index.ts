@@ -9,6 +9,7 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { Box, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -17,7 +18,7 @@ import { join } from "node:path";
 import { loadConfig, type DebateConfig, type Mode } from "./config.ts";
 import { listRuns, newRunId, runPaths } from "./paths.ts";
 import { parseCommand, selectMode, readSeedFile, HELP_TEXT } from "./command.ts";
-import { Orchestrator, type Progress, type RunOutcome } from "./orchestrator.ts";
+import { Orchestrator, sweepStaleRuns, type Progress, type RunOutcome } from "./orchestrator.ts";
 import { DirectRunner } from "./runner/direct.ts";
 import { FakeRunner } from "./runner/fake.ts";
 import type { TurnRunner } from "./runner/types.ts";
@@ -107,6 +108,36 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  /**
+   * §9.3 entry renderer for the persisted verdict entry. TUI-only — custom entries do
+   * not participate in LLM context, so this is presentation and never affects what a
+   * model sees. Context injection is `sendMessage` below, deliberately separate.
+   *
+   * Collapsed: one line with status, cost and open-high count. Expanded: the summary.
+   */
+  pi.registerEntryRenderer("debate-verdict", (entry, { expanded }, theme) => {
+    const d = (entry.data ?? {}) as {
+      runId?: string; path?: string | null; summary?: string;
+      costUsd?: number; status?: string; openHigh?: number; costTrusted?: boolean;
+    };
+    const box = new Box(1, 0, (t) => theme.bg("customMessageBg", t));
+    const cost = typeof d.costUsd === "number"
+      ? `$${d.costUsd.toFixed(2)}${d.costTrusted === false ? "?" : ""}`
+      : "—";
+    // A non-complete run is the interesting case, so make status legible at a glance.
+    const statusText = d.status === "complete"
+      ? theme.fg("success", d.status)
+      : theme.fg("warning", String(d.status ?? "unknown"));
+    const head = `${theme.bold("debate verdict")} ${statusText} · ${cost}`
+      + (d.openHigh ? ` · ${theme.fg("warning", `${d.openHigh} open high`)}` : "");
+    box.addChild(new Text(head));
+    if (expanded) {
+      if (d.summary) box.addChild(new Text(theme.fg("dim", d.summary)));
+      if (d.path) box.addChild(new Text(theme.fg("dim", d.path)));
+    }
+    return box;
+  });
+
   /** §9.3: put the verdict in front of the user and, per config, into the next prompt. */
   function deliver(ctx: ExtensionCommandContext, out: RunOutcome, cfg: DebateConfig): void {
     say(ctx as never, out.summary, out.status === "complete" ? "info" : "warn");
@@ -117,11 +148,23 @@ export default function (pi: ExtensionAPI) {
       summary: out.summary,
       costUsd: out.costUsd,
       status: out.status,
+      openHigh: out.openHighSeverity,
+      costTrusted: out.manifest.costTrusted !== false,
     });
 
     if (cfg.inject !== "none" && out.verdictPath) {
+      // The summary alone is not the verdict. Inject the actual verdict document so the
+      // next prompt carries the decision, unresolved items and minority report — WP6's
+      // acceptance is that the next prompt "demonstrably has the verdict in context".
+      let injected = out.summary;
+      try {
+        const body = readFileSync(out.verdictPath, "utf8");
+        if (body.trim()) injected = `${out.summary}\n\n${body}`;
+      } catch {
+        // Fall back to the summary; a missing verdict file must not break the turn.
+      }
       pi.sendMessage(
-        { customType: "debate", content: out.summary },
+        { customType: "debate", content: injected, display: false },
         { deliverAs: cfg.inject === "followUp" ? "followUp" : "nextTurn" },
       );
     }
@@ -375,15 +418,8 @@ export default function (pi: ExtensionAPI) {
   });
 
   // §9.4: sweep runs left `running` by a crashed session; mark them aborted (resumable).
+  // Logic lives in orchestrator.ts so it is testable (§13.21).
   pi.on("session_start", async (_event, ctx) => {
-    try {
-      for (const r of listRuns(ctx.cwd)) {
-        if (r.status !== "running") continue;
-        const m = readManifest(r.manifestPath);
-        m.status = "aborted";
-        (m.notes ??= []).push("Marked aborted by session_start sweep: the owning session died.");
-        writeManifest(r.manifestPath, m);
-      }
-    } catch { /* never block startup on a sweep */ }
+    sweepStaleRuns(ctx.cwd);
   });
 }
