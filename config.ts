@@ -317,7 +317,16 @@ export function familyOf(provider: string | null, model: string): string {
  *
  * `default`: the WP0-verified roster (§13.14/13.15/13.16).
  */
-export const TIERS: Record<string, { models: Record<Role, string>; note: string }> = {
+export const TIERS: Record<string, {
+  models: Record<Role, string>;
+  note: string;
+  /**
+   * Optional per-role budget the tier applies when the user has not set one. Exists
+   * because a zero-dollar provider makes USD caps inert (§13.14), so such a tier must be
+   * able to ship token-denominated bounds instead of silently inheriting USD ones.
+   */
+  budgets?: Partial<Record<Role, RoleBudget>>;
+}> = {
   free: {
     models: {
       // The only free model with thinking + tools + reliable ledger-block compliance.
@@ -329,6 +338,48 @@ export const TIERS: Record<string, { models: Record<Role, string>; note: string 
     note:
       "zero credit cost; two families only, so the judge is not fully independent (D8), " +
       "and gemma has no thinking support",
+  },
+  /**
+   * All three roles on `ibm-services-essentials`, which is a fixed-credit plan: from the
+   * user's perspective these cost no money, and the worst case is running out of quota
+   * for a while (a recoverable failure, unlike a surprise bill).
+   *
+   * Unlike `free`, this tier keeps **three distinct families** (claude / gpt / gemini),
+   * so D8's independent-judge property holds — IBM fronts all three vendors. That makes
+   * it the only zero-dollar roster that is not also a D8 violation.
+   *
+   * THE TRADE, stated plainly: every IBM model reports `cost.total = 0` with real token
+   * usage (§13.14), so **every USD cap is inert here** — `budget.usd`, `perTurnUsd`, and
+   * the skeptic's $1.20 role cap all sum to zero and can never trip. Token caps are the
+   * only live guardrail, so this tier sets them explicitly rather than inheriting
+   * defaults tuned for a metered provider. Measured 2026-09-07: a 2-bash-call turn cost
+   * 16.3K tokens through IBM versus ~420 through OpenRouter for the same task, because
+   * there is no cache-read discount to earn when the price table is all zeros — so token
+   * budgets must be substantially larger here than a USD-equivalent intuition suggests.
+   *
+   * These models are deliberately NOT declared `free`: `free: true` suppresses the
+   * `cost_unreported` warning (§13.29), and here that warning is telling the truth — the
+   * dollar figure really is unenforceable. Leaving it on keeps `costTrusted: false` and
+   * the verdict's `$?` marker, so no run ever presents a fake $0.00 as fact.
+   */
+  ibm: {
+    models: {
+      ideator: "ibm-services-essentials/claude-opus-4-8",
+      skeptic: "ibm-services-essentials/gpt-5.6-sol",
+      synthesizer: "ibm-services-essentials/gemini-3.7-flash",
+    },
+    note:
+      "zero dollar cost on the IBM fixed-credit plan, three distinct families (D8 holds); " +
+      "USD caps are inert so token caps are the only real bound, and quota exhaustion " +
+      "is the expected failure mode",
+    // Token caps sized against the measured 16.3K-tokens-per-tool-turn on this provider:
+     // the skeptic gets room for ~3 tool-heavy turns, the cheap roles much less. These
+    // are the ONLY enforceable limits on this tier.
+    budgets: {
+      skeptic: { tokens: 900_000, perTurnTokens: 350_000 },
+      ideator: { tokens: 300_000, perTurnTokens: 150_000 },
+      synthesizer: { tokens: 300_000, perTurnTokens: 150_000 },
+    },
   },
   cheap: {
     models: {
@@ -385,6 +436,15 @@ function applyTier(c: DebateConfig, tier: string, warnings: string[]): void {
     // paid model must not inherit the tier's free flag, or its real cost would be
     // reported as $0 and escape the budget entirely.
     if (tier === "free") c.roles[role]!.free ??= true;
+    // A tier may ship budgets (token caps for zero-dollar providers). Only fill fields
+    // the user left unset, so an explicit budget is never silently widened or narrowed.
+    const tb = t.budgets?.[role];
+    if (tb) {
+      const existing = (c.roles[role]!.budget ??= {});
+      for (const [k, v] of Object.entries(tb) as [keyof RoleBudget, number][]) {
+        if (existing[k] === undefined) existing[k] = v;
+      }
+    }
   }
 }
 

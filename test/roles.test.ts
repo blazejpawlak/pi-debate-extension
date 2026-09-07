@@ -139,6 +139,65 @@ console.log("\n-- tiers (§13.30) --");
     !warnings.some((w) => w.includes("D8 violation")), warnings.join("; "));
   rmSync(ws, { recursive: true, force: true });
 }
+
+// §13.45: the IBM tier is the only zero-dollar roster that still satisfies D8. Its whole
+// point is that USD caps are inert there, so the assertions that matter are about TOKEN
+// caps existing and the cost warning still firing.
+console.log("\n-- ibm tier (§13.45): zero dollars, three families, token-bounded --");
+{
+  const ws = mkdtempSync(join(tmpdir(), "roles-ibm-"));
+  write(ws, { tier: "ibm" });
+  const { config, warnings } = loadConfig(ws, true);
+  const r = resolveAllRoles(config);
+  eq("ibm ideator", r.ideator.ref, "ibm-services-essentials/claude-opus-4-8");
+  eq("ibm skeptic", r.skeptic.ref, "ibm-services-essentials/gpt-5.6-sol");
+  eq("ibm synthesizer", r.synthesizer.ref, "ibm-services-essentials/gemini-3.7-flash");
+  eq("ibm tier spans 3 families (D8 holds, unlike `free`)",
+     new Set([r.ideator.family, r.skeptic.family, r.synthesizer.family]).size, 3);
+  check("ibm tier has no D8 violation",
+    !warnings.some((w) => w.includes("D8 violation")), warnings.join("; "));
+  // The zero-cost warning MUST fire: it is telling the truth here (§13.14).
+  check("ibm tier surfaces the zero-cost-provider warning",
+    warnings.some((w) => w.includes("cost.total=0")), warnings.join("; "));
+  // Not declared free, or that warning would be suppressed (§13.29) and the verdict
+  // would print a fake $0.00 as if it were enforced.
+  check("ibm roles are NOT marked free",
+    !r.ideator.free && !r.skeptic.free && !r.synthesizer.free);
+  // Token caps are the only enforceable bound on this tier.
+  check("every ibm role has a finite token cap",
+    [r.ideator, r.skeptic, r.synthesizer].every((x) => Number.isFinite(x.budgetTokens)),
+    JSON.stringify([r.ideator.budgetTokens, r.skeptic.budgetTokens, r.synthesizer.budgetTokens]));
+  check("every ibm role has a finite per-turn token ceiling",
+    [r.ideator, r.skeptic, r.synthesizer].every((x) => Number.isFinite(x.perTurnTokens)));
+  check("skeptic gets the largest token budget (it does the verification work)",
+    r.skeptic.budgetTokens > r.ideator.budgetTokens);
+  rmSync(ws, { recursive: true, force: true });
+}
+{
+  // A tier must never overwrite a budget the user set explicitly.
+  const ws = mkdtempSync(join(tmpdir(), "roles-ibm2-"));
+  write(ws, { tier: "ibm", roles: { skeptic: { budget: { tokens: 111111 } } } });
+  const { config } = loadConfig(ws, true);
+  const r = resolveAllRoles(config);
+  eq("explicit role budget beats the tier's", r.skeptic.budgetTokens, 111111);
+  check("tier still fills the fields the user left unset",
+    Number.isFinite(r.skeptic.perTurnTokens), String(r.skeptic.perTurnTokens));
+  rmSync(ws, { recursive: true, force: true });
+}
+{
+  // Pinning one role to a metered provider must keep that role's real cost enforcement.
+  const ws = mkdtempSync(join(tmpdir(), "roles-ibm3-"));
+  write(ws, { tier: "ibm", roles: { skeptic: { model: "openrouter/openai/gpt-5.6-sol" } } });
+  const { config, warnings } = loadConfig(ws, true);
+  const r = resolveAllRoles(config);
+  eq("pinned paid model wins over the tier", r.skeptic.ref, "openrouter/openai/gpt-5.6-sol");
+  check("the pinned paid role is not warned about as zero-cost",
+    !warnings.some((w) => w.includes('roles.skeptic uses provider "ibm-services-essentials"')),
+    warnings.join("; "));
+  check("the remaining ibm roles are still warned about",
+    warnings.some((w) => w.includes('roles.ideator uses provider "ibm-services-essentials"')));
+  rmSync(ws, { recursive: true, force: true });
+}
 {
   const ws = mkdtempSync(join(tmpdir(), "roles-g-"));
   write(ws, { tier: "free", roles: { synthesizer: { model: "openrouter/google/gemini-3.1-pro-preview" } } });
