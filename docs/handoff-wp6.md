@@ -1,3 +1,12 @@
+> **SUPERSEDED IN PART — updated after the WP6 session.**
+> WP6's abort/renderer/injection/sweep work is **done** (§13.43/§13.44) and the suite is
+> **465 checks**. The re-probe cost question is **ruled: tune** — the Skeptic moved to
+> `openrouter/openai/gpt-5.6-sol` with a $1.20 role budget (§13.41), because the codex
+> subscription is exhausted. Read §13.41–§13.44 first; the "Genuine gaps" list below is
+> historical. Remaining: WP7 (optional) and WP8 (the full 51.8KB evaluation, still the
+> intended tiebreaker on value). Note `OPENROUTER_KEY` now carries all three roles and
+> had **$13.14** left (§13.42).
+
 # Handoff — Multi-Agent Debate pi extension, continuing at WP6
 
 Written: 2026-09-07
@@ -7,12 +16,12 @@ Next session focus: **WP6 — UI + session integration**
 
 ## Read these first, in this order
 
-1. **`/Users/tetsuo/Desktop/mac-migration/debate-swarm-design.md`** — the work order.
+1. **`docs/design/debate-swarm-design.md`** — the work order.
    Read it end to end before writing code. §11 lists WP0–WP8. **§13 has grown to 40 rows**
    and is where every reality-vs-document discrepancy is recorded.
-2. **`~/.pi/agent/extensions/debate/CONFIG.md`** — the config surface as built (tiers,
+2. **`CONFIG.md`** — the config surface as built (tiers,
    per-role budgets, free models).
-3. **`/Users/tetsuo/Desktop/mac-migration/.debate/eval/reprobe-20260907.md`** — why the
+3. **`docs/eval/reprobe-20260907.md`** — why the
    protocol is now believed to work, and the open cost question.
 
 Do not re-derive §7 or §8; they are verified contracts. §13 is the **only** section of the
@@ -49,7 +58,7 @@ The user is technically sharp and checks claims. Behaviours that worked:
 | WP7 | optional | Harness adapter + publisher (`runner/harness.ts`, `publish.ts` — neither exists) |
 | WP8 | pending | Full 51.8KB evaluation |
 
-**Test suite: 437 checks, all green.**
+**Test suite: 465 checks, all green.** (`npm test` from the repo root.)
 ```
 ~/.pi/agent/extensions/debate/test/run-all.sh     # no tokens spent
 npx tsx test/runner-direct.test.ts                # real tokens, ~$0.22
