@@ -45,7 +45,7 @@ environment, every role fails rather than one degrading (§13.42). Remaining bal
   "roles": {
     "ideator":     { "model": "openrouter/anthropic/claude-opus-4-8", "thinking": "high" },
     "skeptic":     {
-      "model": "openai-codex/gpt-6-astra",
+      "model": "openrouter/openai/gpt-5.6-sol",
       "thinking": "max",
       "tools": ["read", "grep", "find", "ls", "bash"],
       "budget": { "usd": 3, "tokens": 500000, "perTurnUsd": 1.5, "turnMs": 300000 }
@@ -54,6 +54,10 @@ environment, every role fails rather than one degrading (§13.42). Remaining bal
   }
 }
 ```
+
+**The shipped default already sets one of these:** `roles.skeptic.budget.usd = 1.2`, because
+the Skeptic is empirically ~95% of run cost (§13.41). Overriding `roles.skeptic.budget`
+replaces that cap — set it higher only if you want a third verification round to run.
 
 | field | meaning |
 |---|---|
@@ -162,6 +166,9 @@ Resolves the plan, counts turns, and estimates cost **without invoking any model
 ## Tests
 
 ```
-~/.pi/agent/extensions/debate/test/run-all.sh     # no tokens spent
-npx tsx test/runner-direct.test.ts                # real tokens, ~$0.22
+npm test                            # 465 checks, no tokens spent
+npx tsx test/runner-direct.test.ts  # real tokens, ~$0.22
 ```
+
+Run from the repo root (`~/Projects/pi-debate-extension`), which is what
+`~/.pi/agent/extensions/debate` symlinks to.
