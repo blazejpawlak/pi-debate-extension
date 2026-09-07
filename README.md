@@ -29,3 +29,23 @@ ln -s ~/Projects/pi-debate-extension ~/.pi/agent/extensions/debate
 ```
 
 This keeps the GitHub repository as the editable source while pi continues to auto-discover the `debate` extension.
+
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| `index.ts` | Extension registration and glue (not unit-testable; needs pi's loader) |
+| `command.ts` | Pure argument/mode parsing |
+| `config.ts` | Layered config, tiers, per-role resolution |
+| `orchestrator.ts` | State machine, budgets, repair, resume |
+| `ledger.ts` | Claim ledger contract and write-permission enforcement |
+| `excerpts.ts` | `sourceRef` → seed span resolution |
+| `prompts.ts` | Mission assembly |
+| `verdict.ts` | Verdict rendering |
+| `manifest.ts` | Run manifest and `events.jsonl` |
+| `runner/` | `direct.ts` (real models), `fake.ts` (offline), shared types |
+| `personas/` | Ideator, Skeptic, Synthesizer persona bodies |
+| `test/` | Offline suite plus one explicit real-token test |
+| `docs/design/` | Work order and the external design review |
+| `docs/eval/` | Probe, re-probe, and WP4 evaluation artifacts |
+| `docs/handoff-wp6.md` | Current handoff |
