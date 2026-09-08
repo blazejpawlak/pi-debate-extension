@@ -15,7 +15,8 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { loadConfig, resolveAllRoles, type DebateConfig, type Mode } from "./config.ts";
+import { DEFAULTS, loadConfig, resolveAllRoles, type DebateConfig, type Mode } from "./config.ts";
+import { runSetupWizard } from "./setup.ts";
 import { listRuns, newRunId, runPaths } from "./paths.ts";
 import { parseCommand, selectMode, readSeedFile, estimateRun, HELP_TEXT } from "./command.ts";
 import { Orchestrator, sweepStaleRuns, type Progress, type RunOutcome } from "./orchestrator.ts";
@@ -179,6 +180,8 @@ export default function (pi: ExtensionAPI) {
         { value: "resume", label: "resume", description: "Continue a crashed run: resume <run-id>" },
         { value: "last", label: "last", description: "Print the last verdict summary" },
         { value: "runs", label: "runs", description: "List runs with status and cost" },
+        { value: "setup", label: "setup", description: "Guided config + topic wizard (models, budgets, confirmation)" },
+        { value: "help", label: "help", description: "Show command syntax and subcommands" },
         { value: "--mode review", label: "--mode review", description: "Force review mode (document/plan)" },
         { value: "--mode explore", label: "--mode explore", description: "Force explore mode (short idea)" },
       ];
@@ -186,10 +189,23 @@ export default function (pi: ExtensionAPI) {
       return filtered.length > 0 ? filtered : null;
     },
     handler: async (args: string, ctx: ExtensionCommandContext) => {
-      const { config, warnings } = loadConfig(ctx.cwd, ctx.isProjectTrusted?.() ?? true);
-      for (const w of warnings) say(ctx as never, `debate config: ${w}`, "warn");
-
       const cmd = parseCommand(args);
+      let config: DebateConfig;
+      let warnings: string[];
+      try {
+        ({ config, warnings } = loadConfig(ctx.cwd, ctx.isProjectTrusted?.() ?? true));
+      } catch (e) {
+        // A hard config error must not lock the user out of `/debate setup`, the very
+        // command that can repair it. Other commands fail closed rather than running
+        // with a cap we could not parse.
+        if (cmd.kind !== "setup") {
+          say(ctx as never, `debate config: ${(e as Error).message}`, "error");
+          return;
+        }
+        config = JSON.parse(JSON.stringify(DEFAULTS)) as DebateConfig;
+        warnings = [`invalid config ignored for setup only: ${(e as Error).message}`];
+      }
+      for (const w of warnings) say(ctx as never, `debate config: ${w}`, "warn");
 
       switch (cmd.kind) {
         case "help":
@@ -199,6 +215,43 @@ export default function (pi: ExtensionAPI) {
         case "error":
           say(ctx as never, `debate: ${cmd.message}`, "error");
           return;
+
+        case "setup": {
+          if (!ctx.hasUI) {
+            say(ctx as never, "debate: setup needs interactive UI; use /debate <text>, /debate @file, or edit config manually.", "warn");
+            return;
+          }
+          if (active) {
+            say(ctx as never, `debate: already running (${active.runId})`, "error");
+            return;
+          }
+          let setup;
+          try {
+            setup = await runSetupWizard(ctx, config, (projectTrusted) =>
+              loadConfig(ctx.cwd, projectTrusted).config,
+            );
+          } catch (e) {
+            say(ctx as never, `debate: setup failed: ${(e as Error).message}`, "error");
+            return;
+          }
+          if (!setup) return;
+          const mode = selectMode(setup.config, {
+            seed: setup.seedText, seedFile: setup.seedSource === "setup editor" ? null : setup.seedSource,
+            override: null,
+          });
+          say(ctx as never,
+            `debate: starting ${mode} run from setup · seed ${setup.seedText.length} chars · ` +
+            `cap $${setup.config.budget.usd}/run $${setup.config.budget.perTurnUsd}/turn`);
+          try {
+            const out = await execute(ctx, setup.config, {
+              seedText: setup.seedText, seedSource: setup.seedSource, mode,
+            });
+            deliver(ctx, out, setup.config);
+          } catch (e) {
+            say(ctx as never, `debate: run failed: ${(e as Error).message}`, "error");
+          }
+          return;
+        }
 
         case "status": {
           if (!active) { say(ctx as never, "debate: no active run"); return; }

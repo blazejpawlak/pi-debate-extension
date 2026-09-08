@@ -1,12 +1,16 @@
 # debate — configuration reference
 
-Config is layered: **defaults → `~/.pi/agent/settings.json` `"debate"` → `<workspace>/.pi/debate.json`**.
+Config is layered: **defaults → `~/.pi/agent/settings.json` `"debate"` → `<cwd>/.pi/debate.json`**.
 
-> **Installed default on this machine** (§13.52): `settings.json` carries a `debate` block
-> pinning `tier: "ibm"` (zero-dollar, three families) with time/token caps sized for that
-> slower provider. `publish` and `participate` are off. Override per project in
-> `.pi/debate.json`.
-The project file is only honored for a *trusted* project, because it can redirect model spend.
+Use **`/debate setup`** for the guided path: it recommends a roster, shows whether each
+provider has credentials configured, optionally lets you choose provider/model per role,
+sets the relevant guardrail, asks for a topic or `@file`, shows a final summary, then writes
+only the choices you made. A local file overwrites the prior local debate config; global setup
+replaces only `settings.json`'s `debate` block (never the rest of your pi settings).
+
+The project file is read only when pi trusts the exact directory it was launched from, because
+it can redirect model spend. It is **not inherited by subdirectories**. The wizard asks to
+trust an untrusted project before writing its local config.
 
 Design doc: `debate-swarm-design.md`. Deviations from it are recorded in that file's §13.
 
@@ -54,7 +58,7 @@ environment, every role fails rather than one degrading (§13.42). Remaining bal
       "model": "openrouter/openai/gpt-5.6-sol",
       "thinking": "max",
       "tools": ["read", "grep", "find", "ls", "bash"],
-      "budget": { "usd": 3, "tokens": 500000, "perTurnUsd": 1.5, "turnMs": 300000 }
+      "budget": { "usd": 3, "tokens": 500000, "perTurnUsd": 1.5, "turn": "5m" }
     },
     "synthesizer": { "model": "openrouter/google/gemini-3.1-pro-preview", "free": false }
   }
@@ -75,25 +79,30 @@ replaces that cap — set it higher only if you want a third verification round 
 | `budget.tokens` | Cumulative tokens for this role. |
 | `budget.perTurnUsd` | Mid-turn kill ceiling for this role's turns. |
 | `budget.perTurnTokens` | Mid-turn token ceiling. |
-| `budget.turnMs` | Per-turn wall clock for this role. |
+| `budget.turn` | Per-turn wall clock for this role. Accepts the same duration syntax. |
 
 ### Bounding total time (avoiding an endless debate)
 
 ```json
-{ "timeouts": { "turnMs": 240000, "totalMs": 900000, "verdictGraceMs": 300000 } }
+{ "timeouts": { "turn": "4m", "total": "15m", "verdictGrace": "5m" } }
 ```
 
 | key | bounds | on breach |
 |---|---|---|
-| `turnMs` | one turn | child killed; one repair attempt |
-| `totalMs` | the whole run, checked at turn boundaries | rounds stop, status `partial`, **the verdict still runs** |
-| `verdictGraceMs` | extra time the judge may use *after* `totalMs` | judge skipped, mechanical verdict written (§13.50) |
+| `turn` | one turn | child killed; one repair attempt |
+| `total` | the whole run, checked at turn boundaries | rounds stop, status `partial`, **the verdict still runs** |
+| `verdictGrace` | extra time the judge may use *after* `total` | judge skipped, mechanical verdict written |
 
 `totalMs` deliberately does not kill the verdict: a run that spends its budget and returns
 nothing is worse than one that returns a `partial` conclusion. But the judge is the largest
 single turn — the whole seed can be inlined for it — so it is separately bounded by
 `verdictGraceMs`, which caps both *whether* it starts and *how long* its own turn may take.
-Set `verdictGraceMs: 0` to forbid a judge turn once the budget is gone.
+Set `verdictGrace: 0` to forbid a judge turn once the budget is gone.
+
+Durations accept `"90s"`, `"15m"`, `"1h"`, decimal `"1.5h"`, and compound `"1h30m"`.
+A bare number remains milliseconds for compatibility. The old `turnMs`, `totalMs`, and
+`verdictGraceMs` spellings still work but new configs should use the readable names above.
+Malformed durations are a hard error — a typo must not silently replace a safety limit.
 
 **This matters most on free tiers.** Zero-dollar providers make every USD cap inert, so time
 and tokens are the only real limits — and IBM is measurably slower per turn than OpenRouter.

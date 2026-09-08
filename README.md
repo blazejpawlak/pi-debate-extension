@@ -72,8 +72,12 @@ pi auto-discovers it. Verify with `/debate` in any session.
 ## Configure
 
 Layered, later wins: **built-in defaults → `~/.pi/agent/settings.json` `"debate"` →
-`<workspace>/.pi/debate.json`** (project file honoured only for a trusted project, since
-it can redirect model spend).
+`<cwd>/.pi/debate.json`**. The local file is read only when pi trusts the exact directory
+where you launched pi; it is not inherited by subdirectories because it can redirect model spend.
+
+The friendly path is **`/debate setup`**: choose global or local settings, select a recommended
+roster (or a provider/model per role), see credential status, set the relevant guardrail, paste a
+topic or enter `@file`, review the complete summary, then confirm. It writes only your choices.
 
 The one setting most people want, because it makes runs free:
 
@@ -94,6 +98,7 @@ time caps, swarm integration.
 ## Use
 
 ```
+/debate setup                 guided config + topic wizard
 /debate @plan.md              review a file
 /debate <text>                review inline text (mode auto-selected)
 /debate --mode explore ...    force explore mode (short ideas)
@@ -148,9 +153,14 @@ Two-level spend enforcement, plus time:
 | `budget.perTurnUsd` / `perTurnTokens` | one turn, checked **mid-stream** | child killed |
 | `budget.usd` / `tokens` | whole run | rounds stop, `partial` verdict |
 | `roles.<role>.budget.*` | one role | that role skipped, run continues |
-| `timeouts.turnMs` | one turn | killed, one repair attempt |
-| `timeouts.totalMs` | whole run | rounds stop, **verdict still runs** |
-| `timeouts.verdictGraceMs` | the judge | mechanical verdict written |
+| `timeouts.turn` | one turn | killed, one repair attempt |
+| `timeouts.total` | whole run | rounds stop, **verdict still runs** |
+| `timeouts.verdictGrace` | the judge | mechanical verdict written |
+
+Durations are readable: use `"90s"`, `"15m"`, `"1h"`, `"1.5h"`, or `"1h30m"`. A bare
+number remains milliseconds for existing files; `turnMs`/`totalMs`/`verdictGraceMs` are also
+accepted but new configs should use `turn`/`total`/`verdictGrace`. Invalid durations stop setup
+or config loading rather than silently changing a safety cap.
 
 A role budget can only ever narrow, never widen — adding one cannot increase total spend.
 There is no configuration that produces an endless debate: every path terminates in a

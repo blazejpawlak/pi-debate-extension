@@ -28,6 +28,93 @@ export type ThinkingLevel =
 export type CostReporting = "warn" | "require" | "ignore";
 
 /**
+ * §13.55: duration values accept human units, not just milliseconds.
+ *
+ * Accepted: `"90s"`, `"15m"`, `"1h"`, `"1.5h"`, `"1h30m"`, `"2m30s"`, and bare numbers
+ * (milliseconds, for backward compatibility). Whitespace and case are ignored, so
+ * `"1H 30M"` works.
+ *
+ * Canonical keys are `turn`, `total`, `verdictGrace`. The old `*Ms` spellings keep
+ * working silently, because configs in the wild use them.
+ *
+ * Invalid input is a HARD ERROR, not a warning-and-default. A silently wrong timeout is
+ * exactly what produced §13.53's failed run — four discarded Skeptic turns because a cap
+ * was too low — and a typo like `"5x"` quietly becoming 240s would repeat that class of
+ * bug with no signal at all.
+ */
+export class DurationError extends Error {}
+
+const DURATION_UNITS: Record<string, number> = {
+  ms: 1,
+  s: 1_000, sec: 1_000, secs: 1_000, second: 1_000, seconds: 1_000,
+  m: 60_000, min: 60_000, mins: 60_000, minute: 60_000, minutes: 60_000,
+  h: 3_600_000, hr: 3_600_000, hrs: 3_600_000, hour: 3_600_000, hours: 3_600_000,
+};
+
+/** Human-readable examples, shown in the wizard and in error messages. */
+export const DURATION_EXAMPLES = '"90s", "15m", "1h", "1.5h", "1h30m"';
+
+/**
+ * Parse a duration to milliseconds. Throws DurationError on anything unparseable.
+ *
+ * `where` names the offending key so the message is actionable rather than generic.
+ */
+export function parseDuration(value: unknown, where = "duration"): number {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new DurationError(`${where}: ${value} is not a valid duration`);
+    }
+    return Math.round(value);
+  }
+  if (typeof value !== "string") {
+    throw new DurationError(
+      `${where}: expected a number of milliseconds or a string like ${DURATION_EXAMPLES}, got ${typeof value}`,
+    );
+  }
+  const raw = value.trim().toLowerCase().replace(/\s+/g, "");
+  if (raw === "") throw new DurationError(`${where}: empty duration`);
+  // A bare number stays milliseconds, so existing configs are unaffected.
+  if (/^\d+(\.\d+)?$/.test(raw)) return Math.round(Number(raw));
+  if (raw.startsWith("-")) {
+    throw new DurationError(`${where}: "${value}" is negative; durations must be positive`);
+  }
+
+  const re = /(\d+(?:\.\d+)?)([a-z]+)/g;
+  let total = 0;
+  let matched = 0;
+  let consumed = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) {
+    const [whole, num, unit] = m as unknown as [string, string, string];
+    const mult = DURATION_UNITS[unit];
+    if (mult === undefined) {
+      throw new DurationError(
+        `${where}: "${value}" uses unknown unit "${unit}". Use s, m, or h \u2014 e.g. ${DURATION_EXAMPLES}`,
+      );
+    }
+    total += Number(num) * mult;
+    matched++;
+    consumed += whole.length;
+  }
+  if (matched === 0 || consumed !== raw.length) {
+    throw new DurationError(
+      `${where}: "${value}" is not a duration. Use ${DURATION_EXAMPLES}, or a plain number of milliseconds`,
+    );
+  }
+  if (total <= 0) throw new DurationError(`${where}: "${value}" resolves to 0`);
+  return Math.round(total);
+}
+
+/** Render ms back to the shortest human form, for the wizard and generated config. */
+export function formatDuration(ms: number): string {
+  if (ms % 3_600_000 === 0) return `${ms / 3_600_000}h`;
+  if (ms % 60_000 === 0) return `${ms / 60_000}m`;
+  if (ms % 1_000 === 0) return `${ms / 1_000}s`;
+  return `${ms}ms`;
+}
+
+
+/**
  * Per-role overrides (§13.28). Every field is optional; anything omitted falls back to
  * the run-level default, so a bare `{}` behaves exactly as before this existed.
  *
@@ -483,6 +570,55 @@ function applyTier(c: DebateConfig, tier: string, warnings: string[]): void {
   }
 }
 
+/**
+ * §13.55: accept `turn`/`total`/`verdictGrace` (canonical) and `*Ms` (legacy), with
+ * values in either milliseconds or human units, and collapse everything to `*Ms` numbers
+ * so the rest of the codebase keeps dealing with plain integers.
+ *
+ * Applied to `timeouts.*` and every `roles.<role>.budget.turnMs`.
+ */
+function normalizeDurations(c: DebateConfig): void {
+  const t = c.timeouts as unknown as Record<string, unknown>;
+  const pairs: [alias: string, canonical: string][] = [
+    ["turn", "turnMs"],
+    ["total", "totalMs"],
+    ["verdictGrace", "verdictGraceMs"],
+  ];
+  for (const [alias, key] of pairs) {
+    // The friendly spelling wins when both are present: it is the one a human just wrote.
+    if (t[alias] !== undefined) {
+      t[key] = parseDuration(t[alias], `timeouts.${alias}`);
+      delete t[alias];
+    } else if (t[key] !== undefined) {
+      t[key] = parseDuration(t[key], `timeouts.${key}`);
+    }
+  }
+  // A zero verdict grace is meaningful: it skips an over-budget judge. A zero turn or
+  // total is not; it would kill useful work instantly, so reject it just like `"5x"`.
+  if (typeof t.turnMs !== "number" || t.turnMs <= 0) {
+    throw new DurationError(`timeouts.turn: must be greater than 0`);
+  }
+  if (typeof t.totalMs !== "number" || t.totalMs <= 0) {
+    throw new DurationError(`timeouts.total: must be greater than 0`);
+  }
+  if (typeof t.verdictGraceMs !== "number" || t.verdictGraceMs < 0) {
+    throw new DurationError(`timeouts.verdictGrace: must be 0 or greater`);
+  }
+  for (const role of ROLES) {
+    const b = c.roles?.[role]?.budget as unknown as Record<string, unknown> | undefined;
+    if (!b) continue;
+    if (b.turn !== undefined) {
+      b.turnMs = parseDuration(b.turn, `roles.${role}.budget.turn`);
+      delete b.turn;
+    } else if (b.turnMs !== undefined) {
+      b.turnMs = parseDuration(b.turnMs, `roles.${role}.budget.turnMs`);
+    }
+    if (b.turnMs !== undefined && (typeof b.turnMs !== "number" || b.turnMs <= 0)) {
+      throw new DurationError(`roles.${role}.budget.turn: must be greater than 0`);
+    }
+  }
+}
+
 export function loadConfig(cwd: string, projectTrusted = true): LoadedConfig {
   const warnings: string[] = [];
   const sources: string[] = ["defaults"];
@@ -524,6 +660,10 @@ export function loadConfig(cwd: string, projectTrusted = true): LoadedConfig {
       );
     }
   }
+
+  // §13.55: resolve human durations to ms BEFORE validate/applyTier read them, and
+  // before any comparison like turnMs > totalMs. Throws on malformed input by design.
+  normalizeDurations(config);
 
   // Tier is applied AFTER both config layers merge, so `"tier": "free"` in the project
   // file can override a tier set globally, and explicit per-role models still win.

@@ -17,10 +17,11 @@ export type ParsedCommand =
   | { kind: "resume"; runId: string | null }
   | { kind: "last" }
   | { kind: "runs" }
+  | { kind: "setup" }
   | { kind: "help" }
   | { kind: "error"; message: string };
 
-const SUBCOMMANDS = ["status", "abort", "resume", "last", "runs", "help"] as const;
+const SUBCOMMANDS = ["status", "abort", "resume", "last", "runs", "setup", "help"] as const;
 
 /**
  * Parse `/debate` arguments.
@@ -42,6 +43,7 @@ export function parseCommand(argsRaw: string): ParsedCommand {
       case "abort": return { kind: "abort" };
       case "last": return { kind: "last" };
       case "runs": return { kind: "runs" };
+      case "setup": return { kind: "setup" };
       case "help": return { kind: "help" };
       case "resume": return { kind: "resume", runId: tokens[1] ?? null };
     }
@@ -102,6 +104,7 @@ export function readSeedFile(cwd: string, p: string): { path: string; text: stri
 export const HELP_TEXT = [
   "/debate <text>              debate inline text (mode auto-selected)",
   "/debate @path/to/file.md    debate a file (review mode)",
+  "/debate setup               guided setup: choose models, guardrails, and topic",
   "/debate --mode explore ...  force a mode",
   "/debate status              show progress of the active run",
   "/debate abort               kill children, mark aborted",

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { parseCommand, selectMode, estimateRun } from "../command.ts";
 import {
   DEFAULTS, loadConfig, splitModelRef, familyOf, resolveRoleModel,
+  parseDuration, formatDuration, DurationError,
   type DebateConfig,
 } from "../config.ts";
 import { newRunId, runPaths, turnFileName, listRuns } from "../paths.ts";
@@ -52,6 +53,7 @@ eq("bare -> help", parseCommand("").kind, "help");
 eq("status", parseCommand("status").kind, "status");
 eq("abort", parseCommand("abort").kind, "abort");
 eq("runs", parseCommand("runs").kind, "runs");
+eq("setup", parseCommand("setup").kind, "setup");
 eq("last", parseCommand("last").kind, "last");
 eq("resume with id", parseCommand("resume 20260906-181200-3f9a"),
    { kind: "resume", runId: "20260906-181200-3f9a" });
@@ -82,6 +84,21 @@ eq("file -> review", selectMode(c, { seed: "tiny", seedFile: "p.md", override: n
 eq("override beats file", selectMode(c, { seed: "tiny", seedFile: "p.md", override: "explore" }), "explore");
 eq("override beats length", selectMode(c, { seed: "x".repeat(9999), seedFile: null, override: "explore" }), "explore");
 
+console.log("\n-- human duration parsing (§13.55) --");
+eq("seconds", parseDuration("90s"), 90_000);
+eq("minutes", parseDuration("15m"), 900_000);
+eq("hours", parseDuration("1h"), 3_600_000);
+eq("decimal hours", parseDuration("1.5h"), 5_400_000);
+eq("compound", parseDuration("1h30m"), 5_400_000);
+eq("whitespace and case", parseDuration("1H 30M"), 5_400_000);
+eq("legacy bare number is milliseconds", parseDuration(420_000), 420_000);
+eq("format readable hours", formatDuration(5_400_000), "90m");
+for (const bad of ["", "5x", "one hour", "-3m", {}, null]) {
+  let thrown = false;
+  try { parseDuration(bad, "test.duration"); } catch (e) { thrown = e instanceof DurationError; }
+  check(`invalid duration hard-errors: ${JSON.stringify(bad)}`, thrown);
+}
+
 console.log("\n-- config: two-level merge (§9.5) --");
 const ws = mkdtempSync(join(tmpdir(), "debate-wp1-"));
 try {
@@ -104,6 +121,28 @@ try {
   eq("rounds override", over.config.rounds.max, 2);
   check("perTurnUsd>usd is warned about",
     over.warnings.some((w) => w.includes("perTurnUsd")), over.warnings.join("; "));
+
+  // §13.55: friendly canonical keys (`turn`/`total`/`verdictGrace`) normalize to
+  // internal milliseconds, while legacy *Ms keys keep working.
+  writeFileSync(join(ws, ".pi", "debate.json"), JSON.stringify({
+    timeouts: { turn: "1.5h", total: "2h", verdictGrace: "90s" },
+    roles: { skeptic: { budget: { turn: "1h30m" } } },
+  }));
+  const friendly = loadConfig(ws, true);
+  eq("friendly timeouts.turn", friendly.config.timeouts.turnMs, 5_400_000);
+  eq("friendly timeouts.total", friendly.config.timeouts.totalMs, 7_200_000);
+  eq("friendly timeouts.verdictGrace", friendly.config.timeouts.verdictGraceMs, 90_000);
+  eq("friendly role budget.turn", friendly.config.roles.skeptic.budget?.turnMs, 5_400_000);
+  check("aliases do not leak into resolved config",
+    !("turn" in (friendly.config.timeouts as unknown as Record<string, unknown>)));
+  writeFileSync(join(ws, ".pi", "debate.json"), JSON.stringify({ timeouts: { turn: "five bananas" } }));
+  let invalidDurationThrew = false;
+  try { loadConfig(ws, true); } catch (e) { invalidDurationThrew = e instanceof DurationError; }
+  check("invalid configured duration hard-errors", invalidDurationThrew);
+  writeFileSync(join(ws, ".pi", "debate.json"), JSON.stringify({ timeouts: { turn: "0" } }));
+  let zeroTurnThrew = false;
+  try { loadConfig(ws, true); } catch (e) { zeroTurnThrew = e instanceof DurationError; }
+  check("zero turn duration hard-errors", zeroTurnThrew);
 
   // Untrusted project config must be ignored: it can redirect model spend.
   const untrusted = loadConfig(ws, false);
