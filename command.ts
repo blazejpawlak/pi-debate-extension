@@ -111,3 +111,50 @@ export const HELP_TEXT = [
   "",
   "Note: a first token matching a subcommand is always read as that subcommand.",
 ].join("\n");
+
+/**
+ * §13.51: dry-run plan + cost estimate. Lives here, not in index.ts, because index.ts
+ * cannot be imported by tests (§13.21) — which is exactly why the original estimate
+ * ("$3.50–$14.00" for a 211-char seed) shipped unnoticed.
+ *
+ * Estimates from MEASURED runs rather than §4.1's `turns × $0.50–2` guess:
+ *   WP5 re-probe:  6.1KB seed, 3 rounds → $2.11 on paid models
+ *   WP8:          51.8KB seed, 3 rounds → $0.00 on `tier: "ibm"`
+ *
+ * When every role sits on a provider with no price table, it reports $0.00 and says so,
+ * instead of quoting dollars that cannot be charged and cannot be capped (§13.14/§13.19).
+ */
+export const NO_PRICE_TABLE_PROVIDERS = new Set(["ibm-services-essentials"]);
+
+/** WP5 re-probe anchor: 6.1KB of seed, 3 rounds, $2.11 measured. */
+const ANCHOR_USD = 2.11;
+const ANCHOR_SEED_CHARS = 6100;
+const ANCHOR_ROUNDS = 3;
+
+export interface DryRunEstimate {
+  turns: number;
+  estLow: number;
+  estHigh: number;
+  /** True when no role can be billed, so a USD figure would be fiction. */
+  billsNothing: boolean;
+}
+
+export function estimateRun(opts: {
+  mode: Mode;
+  rounds: number;
+  seedChars: number;
+  /** Resolved per-role provider ids, and whether each was declared free. */
+  roles: { provider: string | null; free?: boolean }[];
+}): DryRunEstimate {
+  const turns = opts.mode === "review" ? 2 * opts.rounds + 1 : 2 * opts.rounds;
+  const billsNothing =
+    opts.roles.length > 0 &&
+    opts.roles.every(
+      (r) => r.free === true || NO_PRICE_TABLE_PROVIDERS.has(r.provider ?? ""),
+    );
+  if (billsNothing) return { turns, estLow: 0, estHigh: 0, billsNothing };
+  // Floor the seed scale: a one-line idea still pays for 7 turns of overhead.
+  const scale = Math.max(0.15, opts.seedChars / ANCHOR_SEED_CHARS);
+  const mid = ANCHOR_USD * scale * (opts.rounds / ANCHOR_ROUNDS);
+  return { turns, estLow: mid * 0.5, estHigh: mid * 2, billsNothing };
+}

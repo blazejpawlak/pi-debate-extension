@@ -15,9 +15,9 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { loadConfig, type DebateConfig, type Mode } from "./config.ts";
+import { loadConfig, resolveAllRoles, type DebateConfig, type Mode } from "./config.ts";
 import { listRuns, newRunId, runPaths } from "./paths.ts";
-import { parseCommand, selectMode, readSeedFile, HELP_TEXT } from "./command.ts";
+import { parseCommand, selectMode, readSeedFile, estimateRun, HELP_TEXT } from "./command.ts";
 import { Orchestrator, sweepStaleRuns, type Progress, type RunOutcome } from "./orchestrator.ts";
 import { DirectRunner } from "./runner/direct.ts";
 import { FakeRunner } from "./runner/fake.ts";
@@ -374,21 +374,42 @@ export default function (pi: ExtensionAPI) {
       if (params.dryRun) {
         const rounds = params.rounds ?? config.rounds.max;
         const turns = mode === "review" ? 2 * rounds + 1 : 2 * rounds;
-        // §4.1 order-of-magnitude figures, refined by WP4 measurements.
-        const estLow = turns * 0.5, estHigh = turns * 2;
+        // Resolve per role: `config.models.*` is nulled out when a tier is active
+        // (applyTier moves the model into roles.<r>.model), so printing it showed
+        // "null" for every tiered roster.
+        const roles = resolveAllRoles(config);
+
+        const est = estimateRun({
+          mode, rounds, seedChars: seedText.length,
+          roles: [roles.ideator, roles.skeptic, roles.synthesizer],
+        });
+        const { estLow, estHigh, billsNothing: allFree } = est;
+
+        const costLine = allFree
+          ? "estimated cost: $0.00 - every role is on a provider that bills nothing " +
+            "(USD caps cannot bind here; token and time caps are the real limits)"
+          : `estimated cost: $${estLow.toFixed(2)}-$${estHigh.toFixed(2)} ` +
+            `(scaled from measured runs) against a $${config.budget.usd} cap`;
+
         const plan = [
           `mode: ${mode}`,
           `seed: ${seedSource} (${seedText.length} chars)`,
-          `models: ideator=${config.models.ideator}`,
-          `        skeptic=${config.models.skeptic}`,
-          `        synthesizer=${config.models.synthesizer}`,
+          `models: ideator=${roles.ideator.ref}`,
+          `        skeptic=${roles.skeptic.ref}`,
+          `        synthesizer=${roles.synthesizer.ref}`,
           `max model turns: ${turns} (+ up to ${config.repairs.max} repairs)`,
-          `estimated cost: $${estLow.toFixed(2)}-$${estHigh.toFixed(2)} against a $${config.budget.usd} cap`,
+          costLine,
           `per-turn ceiling: $${config.budget.perTurnUsd} / ${config.budget.perTurnTokens} tokens`,
+          `time cap: ${config.timeouts.totalMs / 1000}s total, ` +
+            `${config.timeouts.turnMs / 1000}s per turn, ` +
+            `+${config.timeouts.verdictGraceMs / 1000}s verdict grace`,
         ].join("\n");
         return {
           content: [{ type: "text", text: plan }],
-          details: { status: "dryRun", mode, turns, estLow, estHigh, seedChars: seedText.length },
+          details: {
+            status: "dryRun", mode, turns, estLow, estHigh,
+            seedChars: seedText.length, billsNothing: allFree,
+          },
         };
       }
 

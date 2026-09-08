@@ -5,7 +5,7 @@ A pi coding-agent extension that runs a structured multi-model debate: Ideator v
 ## Status
 
 - WP0–WP8 complete (WP7's harness-runner half intentionally unbuilt).
-- Offline fake-runner suite: 574 checks passing.
+- Offline fake-runner suite: 587 checks passing.
 - Typecheck clean for pure extension logic.
 - WP6 complete: abort persistence, verdict entry renderer, full-verdict injection, testable stale-run sweep.
 - WP7 publisher done (`publish.ts`, swarm-channel digests, off by default). The `harness` **runner** half is deliberately unbuilt: it would drop usage/cost reporting and degrade budget enforcement to time only (§1.1/§6.4).

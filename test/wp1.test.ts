@@ -7,7 +7,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { parseCommand, selectMode } from "../command.ts";
+import { parseCommand, selectMode, estimateRun } from "../command.ts";
 import {
   DEFAULTS, loadConfig, splitModelRef, familyOf, resolveRoleModel,
   type DebateConfig,
@@ -174,6 +174,55 @@ try {
   eq("listRuns on empty workspace", listRuns(ws).length, 0);
 } finally {
   rmSync(ws, { recursive: true, force: true });
+}
+
+// ===========================================================================
+// §13.51: the dryRun estimate. Had NO test, which is how "$3.50-$14.00 for a 211-char
+// seed" shipped -- the logic sat in index.ts, which tests cannot import (§13.21).
+console.log("\n-- estimateRun: measured anchors, and $0 when nothing can be billed --");
+{
+  const paid = [{ provider: "openrouter" }, { provider: "openrouter" }, { provider: "openrouter" }];
+  const ibm = [
+    { provider: "ibm-services-essentials" },
+    { provider: "ibm-services-essentials" },
+    { provider: "ibm-services-essentials" },
+  ];
+
+  eq("review turns = 2r+1", estimateRun({ mode: "review", rounds: 3, seedChars: 6100, roles: paid }).turns, 7);
+  eq("explore turns = 2r", estimateRun({ mode: "explore", rounds: 3, seedChars: 6100, roles: paid }).turns, 6);
+
+  // A no-price-table roster must never quote dollars (§13.14/§13.19).
+  const free = estimateRun({ mode: "review", rounds: 3, seedChars: 51839, roles: ibm });
+  check("ibm roster bills nothing", free.billsNothing);
+  eq("free estimate is exactly 0", [free.estLow, free.estHigh], [0, 0]);
+
+  // A role explicitly declared free counts too, whatever its provider.
+  const declared = estimateRun({ mode: "review", rounds: 3, seedChars: 6100,
+    roles: [{ provider: "x", free: true }, { provider: "y", free: true }, { provider: "z", free: true }] });
+  check("explicitly-free roles bill nothing", declared.billsNothing);
+
+  // Mixed roster: one billable role means the cost is real.
+  const mixed = estimateRun({ mode: "review", rounds: 3, seedChars: 6100,
+    roles: [{ provider: "ibm-services-essentials" }, { provider: "openrouter" },
+            { provider: "ibm-services-essentials" }] });
+  check("a single paid role makes it billable", !mixed.billsNothing);
+  check("mixed roster quotes a non-zero range", mixed.estHigh > 0);
+
+  // The WP5 anchor: 6.1KB / 3 rounds measured $2.11, so the range must straddle it.
+  const anchor = estimateRun({ mode: "review", rounds: 3, seedChars: 6100, roles: paid });
+  check("range straddles the measured $2.11",
+    anchor.estLow < 2.11 && anchor.estHigh > 2.11, JSON.stringify(anchor));
+
+  // The bug this test exists to prevent: a tiny seed must not be quoted in double digits.
+  const tiny = estimateRun({ mode: "review", rounds: 3, seedChars: 211, roles: paid });
+  check("a 211-char seed is under $1, not $14 (§13.51)", tiny.estHigh < 1, JSON.stringify(tiny));
+  check("but not free either, on paid models", tiny.estHigh > 0);
+
+  // Bigger seed and more rounds cost more; fewer rounds cost less.
+  const big = estimateRun({ mode: "review", rounds: 3, seedChars: 51839, roles: paid });
+  check("51.8KB estimates above 6.1KB", big.estHigh > anchor.estHigh);
+  const two = estimateRun({ mode: "review", rounds: 2, seedChars: 6100, roles: paid });
+  check("2 rounds estimates below 3", two.estHigh < anchor.estHigh);
 }
 
 console.log(`\n${failures.length === 0 ? "PASS" : "FAIL"} — ${pass} checks passed, ${failures.length} failed`);
