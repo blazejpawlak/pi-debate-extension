@@ -7,9 +7,11 @@
  * to run in a transcript or RPC client.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 import {
   DURATION_EXAMPLES,
@@ -278,28 +280,95 @@ async function chooseBudget(
   return budget;
 }
 
+const FILE_PICKER_MANUAL = "Type a file path instead…";
+const FILE_PICKER_SKIP = new Set([".git", ".debate", ".pi", "node_modules", "dist", "build", "coverage"]);
+
+/**
+ * A bounded project file picker for dialogs. pi's main editor supplies `@` completion,
+ * but `ctx.ui.editor()` intentionally does not, so relying on `@` here made file debate
+ * look broken. Ignore generated/private directories and symlinks, cap both depth and
+ * entries, and return cwd-relative paths suitable for readSeedFile().
+ */
+export function listProjectFiles(cwd: string, max = 200): string[] {
+  const files: string[] = [];
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 4 || files.length >= max) return;
+    const entries = (() => {
+      try { return readdirSync(dir, { withFileTypes: true }); } catch { return null; }
+    })();
+    if (!entries) return;
+    for (const entry of entries) {
+      if (files.length >= max) return;
+      // Hidden files commonly contain credentials (.env, .npmrc, etc.); do not make
+      // them one accidental selection away from being sent to debate models.
+      if (entry.isSymbolicLink() || entry.name.startsWith(".") || FILE_PICKER_SKIP.has(entry.name)) continue;
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) { walk(path, depth + 1); continue; }
+      if (!entry.isFile()) continue;
+      try {
+        // Do not offer a multi-megabyte binary/blob as a debate seed.
+        if (statSync(path).size > 2 * 1024 * 1024) continue;
+        files.push(relative(cwd, path));
+      } catch { /* raced/deleted files are simply absent */ }
+    }
+  };
+  walk(cwd, 0);
+  return files.sort((a, b) => a.localeCompare(b));
+}
+
+async function readTopicFile(ctx: SetupContext, path: string): Promise<{ seedText: string; seedSource: string } | null> {
+  try {
+    const file = readSeedFile(ctx.cwd, path.replace(/^@/, ""));
+    return { seedText: file.text, seedSource: file.path };
+  } catch (e) {
+    ctx.ui.notify((e as Error).message, "error");
+    return null;
+  }
+}
+
+async function chooseFile(ctx: SetupContext): Promise<{ seedText: string; seedSource: string } | null> {
+  const files = listProjectFiles(ctx.cwd);
+  if (files.length > 0) {
+    const selected = await ctx.ui.select("Choose a file to debate", [...files, FILE_PICKER_MANUAL]);
+    if (selected === undefined) return null;
+    if (selected !== FILE_PICKER_MANUAL) return readTopicFile(ctx, selected);
+  }
+  const path = await ctx.ui.input("File to debate", "path/to/plan.md (or an absolute path)");
+  if (path === undefined) return null;
+  return path.trim() ? readTopicFile(ctx, path.trim()) : null;
+}
+
 async function chooseTopic(
   ctx: SetupContext,
 ): Promise<{ seedText: string; seedSource: string } | null> {
+  const source = await ctx.ui.select("What should the debate examine?", [
+    "Choose a file from this project",
+    "Paste or write a topic",
+    "Type a file path",
+  ]);
+  if (source === undefined) return null;
+  if (source === "Choose a file from this project") return chooseFile(ctx);
+  if (source === "Type a file path") {
+    const path = await ctx.ui.input("File to debate", "path/to/plan.md (or an absolute path)");
+    return path?.trim() ? readTopicFile(ctx, path.trim()) : null;
+  }
+
   while (true) {
     const value = await ctx.ui.editor(
-      "What should the debate examine?",
-      "Paste or write the topic here. Or enter @path/to/a-file.md to debate a file.",
+      "Write or paste the topic",
+      "Paste the plan, question, or proposal to debate. For a file, cancel and choose ‘Choose a file’. ",
     );
     if (value === undefined) return null;
     const text = value.trim();
     if (!text) {
-      ctx.ui.notify("A topic or @file path is required.", "error");
+      ctx.ui.notify("A topic is required.", "error");
       continue;
     }
+    // Keep @path as a convenient manual shortcut, but do not claim it opens a picker.
     if (/^@\S+$/.test(text)) {
-      try {
-        const file = readSeedFile(ctx.cwd, text.slice(1));
-        return { seedText: file.text, seedSource: file.path };
-      } catch (e) {
-        ctx.ui.notify((e as Error).message, "error");
-        continue;
-      }
+      const file = await readTopicFile(ctx, text);
+      if (file) return file;
+      continue;
     }
     return { seedText: value, seedSource: "setup editor" };
   }

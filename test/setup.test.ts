@@ -1,10 +1,10 @@
 /** `/debate setup` wizard: fake pi UI, no models/tokens spent. */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULTS, loadConfig, type DebateConfig } from "../config.ts";
-import { runSetupWizard, tierPickerLabel, TIER_PICKER_COPY, type SetupContext } from "../setup.ts";
+import { listProjectFiles, runSetupWizard, tierPickerLabel, TIER_PICKER_COPY, type SetupContext } from "../setup.ts";
 
 let pass = 0;
 let fail = 0;
@@ -26,6 +26,22 @@ const strongLabel = tierPickerLabel("strong", () => false);
 check("missing credentials are readable", strongLabel.includes("OpenRouter · sign in") && strongLabel.includes("Codex · sign in"), strongLabel);
 check("profile labels stay compact for an 80-column terminal", Math.max(ibmLabel.length, strongLabel.length) <= 80,
   `${ibmLabel.length}/${strongLabel.length}`);
+
+console.log("\n-- project file picker --");
+const pickerWorkspace = mkdtempSync(join(tmpdir(), "debate-picker-"));
+try {
+  mkdirSync(join(pickerWorkspace, ".git"));
+  mkdirSync(join(pickerWorkspace, "node_modules"));
+  mkdirSync(join(pickerWorkspace, "docs"));
+  writeFileSync(join(pickerWorkspace, "plan.md"), "# plan");
+  writeFileSync(join(pickerWorkspace, ".env"), "SECRET=must-not-be-offered");
+  writeFileSync(join(pickerWorkspace, "docs", "proposal.txt"), "proposal");
+  writeFileSync(join(pickerWorkspace, ".git", "config"), "private");
+  writeFileSync(join(pickerWorkspace, "node_modules", "ignored.js"), "generated");
+  eq("picker lists safe project-relative files only", listProjectFiles(pickerWorkspace), ["docs/proposal.txt", "plan.md"]);
+} finally {
+  rmSync(pickerWorkspace, { recursive: true, force: true });
+}
 
 console.log("\n-- setup wizard (§13.55) --");
 // The full suite supplies an isolated PI_AGENT_DIR; retain direct `tsx test/setup.test.ts`
@@ -50,7 +66,8 @@ const ctx = {
     select: async (title: string, options: string[]) => {
       selects.push(title);
       if (title.startsWith("Where")) return options.find((value) => value.startsWith("This project"));
-      if (title.startsWith("Choose")) return options.find((value) => value.startsWith("IBM (recommended)"));
+      if (title === "Choose a review profile") return options.find((value) => value.startsWith("IBM (recommended)"));
+      if (title === "What should the debate examine?") return "Paste or write a topic";
       throw new Error(`unexpected select: ${title}`);
     },
     confirm: async () => confirms.shift() ?? false,
@@ -67,7 +84,7 @@ try {
     (trusted) => loadConfig(workspace, trusted).config,
   );
   check("wizard completed", result !== null);
-  check("asked scope, tier, and topic", selects.length === 2, JSON.stringify(selects));
+  check("asked scope, profile, and topic source", selects.length === 3, JSON.stringify(selects));
   eq("topic comes from editor", result?.seedText, "Review whether our migration plan has a safe rollback path.");
   eq("topic source identifies wizard", result?.seedSource, "setup editor");
   check("local config was saved", existsSync(join(workspace, ".pi", "debate.json")));

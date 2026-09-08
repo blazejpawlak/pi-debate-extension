@@ -4,7 +4,7 @@ Config is layered: **defaults → `~/.pi/agent/settings.json` `"debate"` → `<c
 
 Use **`/debate setup`** for the guided path: it recommends a roster, shows whether each
 provider has credentials configured, optionally lets you choose provider/model per role,
-sets the relevant guardrail, asks for a topic or `@file`, shows a final summary, then writes
+sets the relevant guardrail, offers a project file picker / path field / topic editor, shows a final summary, then writes
 only the choices you made. A local file overwrites the prior local debate config; global setup
 replaces only `settings.json`'s `debate` block (never the rest of your pi settings).
 

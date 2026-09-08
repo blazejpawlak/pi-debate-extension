@@ -76,8 +76,9 @@ Layered, later wins: **built-in defaults → `~/.pi/agent/settings.json` `"debat
 where you launched pi; it is not inherited by subdirectories because it can redirect model spend.
 
 The friendly path is **`/debate setup`**: choose global or local settings, select a recommended
-roster (or a provider/model per role), see credential status, set the relevant guardrail, paste a
-topic or enter `@file`, review the complete summary, then confirm. It writes only your choices.
+roster (or a provider/model per role), see credential status, set the relevant guardrail, then
+choose a project file from a picker, type a path, or paste a topic. Review the complete summary,
+then confirm. It writes only your choices.
 
 The one setting most people want, because it makes runs free:
 
@@ -133,6 +134,22 @@ max model turns: 7 (+ up to 2 repairs)
 estimated cost: $0.00 - every role is on a provider that bills nothing
 time cap: 2700s total, 420s per turn, +420s verdict grace
 ```
+
+## Acting on a debate result
+
+A debate is a **review artifact**, not an automatic change or execution approval.
+
+1. Start with `Unresolved high-severity` and `Kill criteria`. Treat those as blockers.
+2. Use the cited claim IDs (for example `B1`, `B4`) and their evidence to update the source
+   plan or implementation.
+3. Re-run `/debate @the-same-file.md` after the revision. Keep the prior run as an audit trail;
+   the new run tests whether the blockers were actually resolved.
+4. Execute an operational plan only when its explicit preconditions and your own change-control
+   requirements are satisfied — not merely because the verdict says `proceed-with-changes`.
+
+For the migration-plan result shown above, `B1`/`B4` are path-validation blockers: fix the
+authoritative plan path and fail-closed validation recipe, then rerun the debate before any
+state-changing migration step.
 
 ## What it produces
 
@@ -227,7 +244,7 @@ records a skip and the run is unaffected.
 ## Development
 
 ```bash
-npm test        # 633 checks, no tokens spent (hermetic: uses a throwaway PI_AGENT_DIR)
+npm test        # 634 checks, no tokens spent (hermetic: uses a throwaway PI_AGENT_DIR)
 ```
 
 Real-token tests are excluded on purpose; run `npx tsx test/runner-direct.test.ts`
