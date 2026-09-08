@@ -72,6 +72,27 @@ replaces that cap — set it higher only if you want a third verification round 
 | `budget.perTurnTokens` | Mid-turn token ceiling. |
 | `budget.turnMs` | Per-turn wall clock for this role. |
 
+### Bounding total time (avoiding an endless debate)
+
+```json
+{ "timeouts": { "turnMs": 240000, "totalMs": 900000, "verdictGraceMs": 300000 } }
+```
+
+| key | bounds | on breach |
+|---|---|---|
+| `turnMs` | one turn | child killed; one repair attempt |
+| `totalMs` | the whole run, checked at turn boundaries | rounds stop, status `partial`, **the verdict still runs** |
+| `verdictGraceMs` | extra time the judge may use *after* `totalMs` | judge skipped, mechanical verdict written (§13.50) |
+
+`totalMs` deliberately does not kill the verdict: a run that spends its budget and returns
+nothing is worse than one that returns a `partial` conclusion. But the judge is the largest
+single turn — the whole seed can be inlined for it — so it is separately bounded by
+`verdictGraceMs`, which caps both *whether* it starts and *how long* its own turn may take.
+Set `verdictGraceMs: 0` to forbid a judge turn once the budget is gone.
+
+**This matters most on free tiers.** Zero-dollar providers make every USD cap inert, so time
+and tokens are the only real limits — and IBM is measurably slower per turn than OpenRouter.
+
 **A role budget can only narrow, never widen.** Every value is clamped to the
 corresponding run-level cap, so adding role budgets can never increase total spend.
 Exceeding a run cap is warned about and clamped.

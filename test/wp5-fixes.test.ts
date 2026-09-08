@@ -364,5 +364,119 @@ console.log("\n-- §13.39: one author may not rewrite another's claim text or ev
      allowed.ledger.claims[0]!.sourceRef, "§Implementation Phase 5");
 }
 
+// ===========================================================================
+// §13.50 — bounded total time, so a slow provider cannot produce an endless debate.
+// The point is not just "it stops" but "it stops AND still concludes".
+console.log("\n-- §13.50: total wall clock stops rounds and bounds the judge --");
+{
+  const { Orchestrator } = await import("../orchestrator.ts");
+  const { FakeRunner, fakeTurnText } = await import("../runner/fake.ts");
+  const { mkdtempSync, rmSync, existsSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const PERSONA_DIR = join(import.meta.dirname, "..", "personas");
+  const SEED = "# Plan\n\n## Implementation Phase 5\nQuiesce.\n";
+  const fixtures = {
+    "1-ideator": { text: fakeTurnText([{ id: "C1", text: "ok", type: "INFERENCE" }]) },
+    "1-skeptic": { text: fakeTurnText([{ id: "C1", text: "risk", severity: "high", test: "x", status: "open" }]) },
+    "2-ideator": { text: fakeTurnText([{ id: "C1", text: "m" }]) },
+    "2-skeptic": { text: fakeTurnText([{ id: "C1", text: "m", severity: "high" }]) },
+    "3-ideator": { text: fakeTurnText([{ id: "C1", text: "m3" }]) },
+    "3-skeptic": { text: fakeTurnText([{ id: "C1", text: "m3", severity: "high" }]) },
+    "verdict-synthesizer": { text: "## 2. Decision\n\nJUDGE_RAN\n" },
+  };
+  const mkCfg = (over: Record<string, unknown>) => {
+    const c = JSON.parse(JSON.stringify(DEFAULTS)) as DebateConfig;
+    return Object.assign(c, over) as DebateConfig;
+  };
+
+  // (a) budget gone before R1: stops immediately, still finalizes with a verdict file.
+  {
+    const ws = mkdtempSync(join(tmpdir(), "t50a-"));
+    let t = 0;
+    const runner = new FakeRunner({ fixtures });
+    const o = new Orchestrator({
+      workspace: ws, runner, personaDir: PERSONA_DIR,
+      cfg: mkCfg({ timeouts: { turnMs: 5000, totalMs: 1000, verdictGraceMs: 300000 } }),
+      now: () => (t += 4000),
+    });
+    const out = await o.start("20260908-013000-t50a", { seedText: SEED, seedSource: "t", mode: "review" });
+    eq("exhausted-before-R1 is partial, not failed", out.status, "partial");
+    eq("no model turns ran", runner.calls.length, 0);
+    check("a verdict file is STILL written (never return nothing)",
+      !!out.verdictPath && existsSync(out.verdictPath));
+    check("the reason names the wall clock",
+      (out.manifest.notes ?? []).some((n) => /wall clock/i.test(n)),
+      JSON.stringify(out.manifest.notes));
+    rmSync(ws, { recursive: true, force: true });
+  }
+
+  // (b) budget gone mid-run: rounds stop, but the judge STILL runs inside its grace.
+  {
+    const ws = mkdtempSync(join(tmpdir(), "t50b-"));
+    let t = 0;
+    const runner = new FakeRunner({ fixtures });
+    const o = new Orchestrator({
+      workspace: ws, runner, personaDir: PERSONA_DIR,
+      cfg: mkCfg({ rounds: { max: 3, gateSeverity: "high" },
+                   timeouts: { turnMs: 60000, totalMs: 30000, verdictGraceMs: 300000 } }),
+      now: () => (t += 6000),
+    });
+    const out = await o.start("20260908-013001-t50b", { seedText: SEED, seedSource: "t", mode: "review" });
+    eq("status is partial", out.status, "partial");
+    check("rounds were cut short", out.manifest.rounds < 3, String(out.manifest.rounds));
+    check("the judge still ran, so there IS a conclusion",
+      runner.sequence().includes("verdict-synthesizer"), runner.sequence().join(","));
+    check("verdict body came from the judge",
+      readFileSync(out.verdictPath!, "utf8").includes("JUDGE_RAN"));
+    rmSync(ws, { recursive: true, force: true });
+  }
+
+  // (c) grace ALSO exhausted: judge is skipped, mechanical verdict stands in.
+  {
+    const ws = mkdtempSync(join(tmpdir(), "t50c-"));
+    let t = 0;
+    const runner = new FakeRunner({ fixtures });
+    const o = new Orchestrator({
+      workspace: ws, runner, personaDir: PERSONA_DIR,
+      cfg: mkCfg({ rounds: { max: 3, gateSeverity: "high" },
+                   timeouts: { turnMs: 60000, totalMs: 20000, verdictGraceMs: 0 } }),
+      now: () => (t += 6000),
+    });
+    const out = await o.start("20260908-013002-t50c", { seedText: SEED, seedSource: "t", mode: "review" });
+    check("judge did NOT run once grace was 0 and budget was gone",
+      !runner.sequence().includes("verdict-synthesizer"), runner.sequence().join(","));
+    eq("status is partial", out.status, "partial");
+    check("a mechanical verdict is still produced",
+      !!out.verdictPath && existsSync(out.verdictPath));
+    const body = readFileSync(out.verdictPath!, "utf8");
+    check("mechanical verdict lists unresolved items", body.includes("Unresolved items"));
+    check("and says plainly that no judge ran", /No judge turn/i.test(body), body.slice(0, 400));
+    rmSync(ws, { recursive: true, force: true });
+  }
+
+  // (d) verdictGraceMs caps the judge's own turnMs, not just whether it starts.
+  {
+    const ws = mkdtempSync(join(tmpdir(), "t50d-"));
+    let t = 0;
+    const runner = new FakeRunner({ fixtures });
+    const o = new Orchestrator({
+      workspace: ws, runner, personaDir: PERSONA_DIR,
+      cfg: mkCfg({ rounds: { max: 2, gateSeverity: "high" },
+                   timeouts: { turnMs: 600000, totalMs: 30000, verdictGraceMs: 10000 } }),
+      now: () => (t += 6000),
+    });
+    await o.start("20260908-013003-t50d", { seedText: SEED, seedSource: "t", mode: "review" });
+    const jr = runner.calls.find((r) => r.role === "synthesizer");
+    if (jr) {
+      check("judge timeout was clamped below its own turnMs",
+        (jr.timeoutMs ?? Infinity) <= 10000, String(jr.timeoutMs));
+    } else {
+      check("judge skipped (also acceptable: grace already gone)", true);
+    }
+    rmSync(ws, { recursive: true, force: true });
+  }
+}
+
 console.log(`\n${failures.length === 0 ? "PASS" : "FAIL"} — ${pass} checks passed, ${failures.length} failed`);
 if (failures.length) { for (const f of failures) console.log(`  - ${f}`); process.exit(1); }

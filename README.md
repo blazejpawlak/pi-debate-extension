@@ -5,14 +5,14 @@ A pi coding-agent extension that runs a structured multi-model debate: Ideator v
 ## Status
 
 - WP0–WP8 complete (WP7's harness-runner half intentionally unbuilt).
-- Offline fake-runner suite: 560 checks passing.
+- Offline fake-runner suite: 574 checks passing.
 - Typecheck clean for pure extension logic.
 - WP6 complete: abort persistence, verdict entry renderer, full-verdict injection, testable stale-run sweep.
 - WP7 publisher done (`publish.ts`, swarm-channel digests, off by default). The `harness` **runner** half is deliberately unbuilt: it would drop usage/cost reporting and degrade budget enforcement to time only (§1.1/§6.4).
 - Two-way channel participation at `trust: "comments"`: other agents can comment into a debate; comments reach the debaters and the judge but never the ledger.
 - **WP8 done: decision KEEP.** On `tier: "ibm"` the debate and a strong single-model baseline both cost $0.00; 7 of 10 topics were found independently by both arms. See `docs/eval/full-20260908.md`. Recommended usage: explicit `/debate`, plus a baseline review when the decision is irreversible.
 
-See `docs/handoff-wp6.md` for the latest handoff and `docs/design/debate-swarm-design.md` for the work order.
+Architecture and diagrams: `docs/ARCHITECTURE.md`. See `docs/handoff-wp6.md` for the latest handoff and `docs/design/debate-swarm-design.md` for the work order.
 
 ## Local development
 

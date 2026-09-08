@@ -112,6 +112,8 @@ export class Orchestrator {
   private aborted = false;
   /** In-flight channel digests (§11 WP7), awaited before finalize. */
   private inFlightPublishes = new Set<Promise<void>>();
+  /** §13.50: remaining wall clock for the judge turn, set just before it runs. */
+  private verdictTurnCapMs: number | null = null;
   /** Injected transport for the publisher, so tests never touch the network. */
   private publishDeps: PublishDeps = {};
   /** §13.48: comments read from the channel, shown as context. Never ledger claims. */
@@ -524,7 +526,11 @@ export class Orchestrator {
       // override in config is honored without the orchestrator knowing the details.
       tools: rr.tools,
       thinking: rr.thinking,
-      timeoutMs: rr.turnMs,
+      // §13.50: the judge is additionally capped by whatever grace remains, so it can
+      // never outrun totalMs + verdictGraceMs even if its own turnMs is larger.
+      timeoutMs: role === "synthesizer" && this.verdictTurnCapMs !== null
+        ? Math.min(rr.turnMs, this.verdictTurnCapMs)
+        : rr.turnMs,
       signal: this.combinedSignal(),
       provider: rr.provider,
       model: rr.model,
@@ -784,6 +790,31 @@ export class Orchestrator {
       this.note("Ledger is empty; no judge turn attempted.");
       return null;
     }
+
+    // §13.50: bound the judge separately. `totalMs` stops rounds but deliberately does
+    // NOT stop the verdict — a run that spends its budget and returns nothing is worse
+    // than a `partial` verdict. Unbounded is wrong too: the judge is the largest single
+    // turn (the whole seed can be inlined for it) and on a slow zero-dollar provider it
+    // is the realistic runaway. So it gets `totalMs + verdictGraceMs`, and past that the
+    // mechanical verdict in verdict.ts stands in.
+    const elapsed = this.now() - this.startedAtMs;
+    const hardStop = this.cfg.timeouts.totalMs + this.cfg.timeouts.verdictGraceMs;
+    if (elapsed >= hardStop) {
+      appendEvent(this.paths.events, "verdict_skipped", {
+        reason: "verdict grace exhausted",
+        elapsedMs: elapsed,
+        totalMs: this.cfg.timeouts.totalMs,
+        verdictGraceMs: this.cfg.timeouts.verdictGraceMs,
+      });
+      this.note(
+        `No judge turn: ${Math.round(elapsed / 1000)}s elapsed exceeds totalMs + ` +
+        `verdictGraceMs (${Math.round(hardStop / 1000)}s). Verdict is mechanical.`,
+      );
+      if (this.manifest.status === "running") this.manifest.status = "partial";
+      return null;
+    }
+    // Never let the judge's own turn run past the hard stop either.
+    this.verdictTurnCapMs = Math.max(1000, hardStop - elapsed);
 
     // Final read before the judge: a comment posted during the last round should still
     // reach it. The judge has no tools, so its prompt is the only channel (§8.3).

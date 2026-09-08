@@ -85,7 +85,17 @@ export interface DebateConfig {
   tier: string | null;
   mode: { reviewThresholdChars: number };
   rounds: { max: number; gateSeverity: Severity };
-  timeouts: { turnMs: number; totalMs: number };
+  timeouts: { turnMs: number; totalMs: number;
+    /**
+     * §13.50: extra wall clock the judge may use AFTER `totalMs` is exhausted.
+     *
+     * `totalMs` deliberately stops rounds but not the verdict — a debate that spends its
+     * budget and returns nothing is worse than one that returns a `partial` verdict. But
+     * unbounded is wrong too: the judge is the largest single turn (the whole seed is
+     * inlined for it), and on a slow zero-dollar provider it is the realistic runaway.
+     * This is that bound. Set 0 to forbid a judge turn once the budget is gone.
+     */
+    verdictGraceMs: number };
   budget: {
     tokens: number;
     usd: number;
@@ -203,7 +213,7 @@ export const DEFAULTS: DebateConfig = {
   tier: null,
   mode: { reviewThresholdChars: 2000 },
   rounds: { max: 3, gateSeverity: "high" },
-  timeouts: { turnMs: 240_000, totalMs: 900_000 },
+  timeouts: { turnMs: 240_000, totalMs: 900_000, verdictGraceMs: 300_000 },
   budget: {
     tokens: 1_500_000,
     usd: 5,
@@ -534,6 +544,11 @@ function validate(c: DebateConfig, warnings: string[]): void {
     warnings.push(
       `timeouts.turnMs (${c.timeouts.turnMs}) exceeds totalMs (${c.timeouts.totalMs})`,
     );
+  }
+  // §13.50: tolerate configs written before verdictGraceMs existed, and normalize a
+  // negative value rather than letting it silently disable the judge.
+  if (typeof c.timeouts.verdictGraceMs !== "number" || c.timeouts.verdictGraceMs < 0) {
+    c.timeouts.verdictGraceMs = DEFAULTS.timeouts.verdictGraceMs;
   }
   if (!["warn", "require", "ignore"].includes(c.budget.costReporting)) {
     warnings.push(
