@@ -35,7 +35,7 @@ One word sets all three role models. Applied after config merge; any explicit
 | tier | ideator | skeptic | synthesizer | cost | caveats |
 |---|---|---|---|---|---|
 | `free` | `ibm-services-essentials/claude-haiku-4-5` | same | `ibm-services-essentials/gemma-4-26b-a4b-it` | **$0** | Entry-level option. The judge has no thinking support and uses a different model family. Use a generous time limit. |
-| `cheap` | `ibm-services-essentials/claude-sonnet-5` | `openai-codex/gpt-5.4-mini` | `openrouter/google/gemini-3.1-pro-preview` | lower than default | Three distinct perspectives. Requires an active Codex subscription for the Skeptic. |
+| `cheap` | `ibm-services-essentials/claude-sonnet-5` | `openai-codex/gpt-5.6-sol` | `openrouter/google/gemini-3.1-pro-preview` | lower than default | Three distinct perspectives. Requires an active Codex subscription for the Skeptic. |
 | `default` | `openrouter/anthropic/claude-opus-4-8` | `openrouter/openai/gpt-5.6-sol` | `openrouter/google/gemini-3.1-pro-preview` | paid | Balanced three-model roster. Uses `OPENROUTER_KEY`. |
 | `ibm` | `ibm-services-essentials/claude-opus-4-8` | `ibm-services-essentials/gpt-5.6-sol` | `ibm-services-essentials/gemini-3.7-flash` | **$0** | Recommended free roster with three distinct perspectives. Dollar caps do not apply; use time and token limits. |
 | `strong` | `openrouter/anthropic/claude-opus-4-8` | `openai-codex/gpt-6-astra` | `openrouter/google/gemini-3.1-pro-preview` | paid | Maximum scrutiny. Requires an active Codex subscription for the Skeptic. |

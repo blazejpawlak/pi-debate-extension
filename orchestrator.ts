@@ -127,6 +127,8 @@ export class Orchestrator {
   private verdictBody: string | null = null;
   /** Resolved per-role config, computed once (§13.28). */
   private roles = new Map<Role, ResolvedRole>();
+  /** A bad model identifier/auth mode cannot be repaired by asking the model again. */
+  private fatalReviewConfiguration: string | null = null;
 
   /** Resolved config for a role, including its own budget and tool set. */
   private role(role: Role): ResolvedRole {
@@ -365,6 +367,12 @@ export class Orchestrator {
         await this.settlePublishes();
         return this.finalize(null);
       }
+      // Do not buy a judge turn to summarize a review known to be invalid because the
+      // Skeptic model itself is unavailable. finalize() emits a mechanical re-run notice.
+      if (this.fatalReviewConfiguration) {
+        await this.settlePublishes();
+        return this.finalize(null);
+      }
 
       const body = await this.runVerdict(mode);
       // A final digest for the verdict itself, so a channel reader sees the outcome and
@@ -441,6 +449,13 @@ export class Orchestrator {
       }
     }
 
+    if (mode === "review" && this.fatalReviewConfiguration) {
+      appendEvent(this.paths.events, "review_stopped", {
+        round, reason: "skeptic model unavailable",
+      });
+      return false;
+    }
+
     if (round === 1 && mode === "review" && remaining.length === 2) {
       const bothFailed = results.length === 2 && results.every((r) => r.result.status !== "ok");
       if (bothFailed) {
@@ -467,6 +482,12 @@ export class Orchestrator {
    * Skeptic attempts across two rounds still produced `status: complete` with
    * `Confidence: 0.85`. That is the worst possible presentation of a broken run.
    */
+  private isNonRetryableModelFailure(result: TurnResult): boolean {
+    if (result.status === "ok") return false;
+    return /(model is not supported|unsupported model|model not found|unknown model|invalid model)/i
+      .test(result.stderrTail ?? "");
+  }
+
   private skepticContributed(): boolean {
     return this.manifest.turns.some(
       (t) => t.role === "skeptic" && t.status === "ok" && t.merged,
@@ -507,6 +528,16 @@ export class Orchestrator {
     // Charge the attempt now, merged:false (§8.6).
     const record = this.recordTurn(round, role, result, repairNote !== undefined);
     this.saveManifest();
+
+    if (role === "skeptic" && this.isNonRetryableModelFailure(result)) {
+      const detail = result.stderrTail?.slice(-600) ?? "unknown model configuration error";
+      this.fatalReviewConfiguration = detail;
+      this.manifest.status = "partial";
+      this.note(`Skeptic model is unavailable: ${detail}. Fix the model configuration before re-running.`);
+      appendEvent(this.paths.events, "skeptic_model_unavailable", { round, detail });
+      // A repair repeats the same provider/model request and cannot fix this class of error.
+      return { result, record };
+    }
 
     const block = extractLedgerBlock(result.text);
     const needsRepair = result.status !== "ok" || !block.ok;

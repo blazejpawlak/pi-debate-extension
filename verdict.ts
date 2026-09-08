@@ -122,8 +122,31 @@ export function buildVerdict(input: VerdictBuildInput): string {
   }
   head.push("");
 
+  const noAdversarialReview = input.ledger.claims.length > 0 && !authors.has("B");
   let body = input.body?.trim() ?? "";
-  if (!body) {
+  if (noAdversarialReview) {
+    // A judge can still produce fluent prose from the Ideator's claims, but it has no
+    // independent evidence base. Never let a model's "proceed" or confidence score
+    // turn a failed review into an apparent approval.
+    const open = openAtOrAbove(input.ledger, "low")
+      .sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]);
+    body = [
+      "## 1. Proposer findings (unverified)",
+      "",
+      ...(open.length === 0
+        ? ["_No claims were recovered._"]
+        : open.map((x) => `- **${x.id}** (${x.severity}) ${x.text}${x.test ? ` — proposed test: ${x.test}` : ""}`)),
+      "",
+      "## 2. Decision",
+      "",
+      "**INVALID REVIEW — RE-RUN REQUIRED.** The Skeptic made no merged contribution, so "+
+        "the model's proposed decision and confidence are withheld rather than treated as approval.",
+      "",
+      "## 3. Confidence and why",
+      "",
+      "_Not assessed: no independent adversarial review or verification occurred._",
+    ].join("\n");
+  } else if (!body) {
     // No judge output: emit a mechanical stand-in rather than an empty file, so a
     // partial/failed run is still actionable.
     const open = openAtOrAbove(input.ledger, "low")
@@ -218,8 +241,12 @@ export function buildSummary(input: {
     lines.push("", "No unresolved high-severity claims.");
   }
 
-  // Pull the Decision section out of the judge's body if present.
-  if (input.body) {
+  const noAdversarialReview = input.ledger.claims.length > 0 &&
+    !input.ledger.claims.some((claim) => claim.author === "B");
+  if (noAdversarialReview) {
+    lines.push("", "Decision: INVALID REVIEW — re-run after restoring the Skeptic.");
+  // Pull the Decision section out of the judge's body only when it had independent input.
+  } else if (input.body) {
     const m = input.body.match(/##\s*2\.\s*Decision\s*\n+([\s\S]{0,400}?)(?=\n##|$)/);
     if (m) {
       const decision = m[1]!.trim().split("\n").slice(0, 4).join(" ").trim();

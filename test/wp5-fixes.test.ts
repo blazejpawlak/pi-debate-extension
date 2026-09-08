@@ -529,8 +529,42 @@ console.log("\n-- §13.53: skeptic absence must not read as a clean result --");
   check("verdict explains high-severity count is meaningless",
     /meaningless/i.test(vb));
   check("verdict tells the reader to re-run", /[Rr]e-run/.test(vb));
+  check("model approval is withheld", vb.includes("INVALID REVIEW — RE-RUN REQUIRED"));
+  check("model's proceed decision is not presented", !vb.includes("proceed-with-changes"));
   // Sanity: the claims really are all one author.
   check("all claims are the ideator's", out.ledger.claims.every((c) => c.author === "A"));
+  rmSync(ws, { recursive: true, force: true });
+}
+{
+  // A provider rejecting the configured model is not a malformed answer: retrying it
+  // wastes turns, and a judge cannot turn the resulting monologue into a review.
+  const { mkdtempSync, rmSync, readFileSync: rf } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { readEvents } = await import("../manifest.ts");
+  const { runPaths } = await import("../paths.ts");
+  const { Orchestrator } = await import("../orchestrator.ts");
+  const { FakeRunner, fakeTurnText } = await import("../runner/fake.ts");
+  const PERSONA = join(import.meta.dirname, "..", "personas");
+  const mkCfg = () => JSON.parse(JSON.stringify(DEFAULTS)) as DebateConfig;
+  const SEED = "# Plan\n\n## Implementation Phase 5\nQuiesce.\n";
+  const ws = mkdtempSync(join(tmpdir(), "t53-model-"));
+  const runner = new FakeRunner({ fixtures: {
+    "1-ideator": { text: fakeTurnText([{ id: "C1", text: "proposal", evidence: "seed" }]) },
+    "1-skeptic": {
+      status: "failed", stopReason: "error", text: "",
+      stderrTail: "providerError: The 'gpt-x' model is not supported when using this account.",
+    },
+  }});
+  const o = new Orchestrator({ workspace: ws, runner, personaDir: PERSONA, cfg: mkCfg() });
+  const out = await o.start("20260908-140001-t53", { seedText: SEED, seedSource: "t", mode: "review" });
+  eq("unsupported Skeptic model stops after R1", runner.sequence(), ["1-ideator", "1-skeptic"]);
+  eq("unsupported Skeptic model is partial", out.status, "partial");
+  check("unsupported model records a specific event",
+    readEvents(runPaths(ws, out.runId).events).some((e) => e.code === "skeptic_model_unavailable"));
+  check("unsupported model never buys a judge", !out.manifest.turns.some((t) => t.round === "verdict"));
+  check("unsupported model verdict is explicitly invalid",
+    rf(out.verdictPath!, "utf8").includes("INVALID REVIEW — RE-RUN REQUIRED"));
   rmSync(ws, { recursive: true, force: true });
 }
 {

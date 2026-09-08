@@ -504,7 +504,9 @@ export const TIERS: Record<string, {
   cheap: {
     models: {
       ideator: "ibm-services-essentials/claude-sonnet-5",
-      skeptic: "openai-codex/gpt-5.4-mini",
+      // gpt-5.4-mini rejects ChatGPT-account Codex credentials. gpt-5.6-sol was
+      // verified on that credential type and retains the cheap tier's GPT perspective.
+      skeptic: "openai-codex/gpt-5.6-sol",
       synthesizer: "openrouter/google/gemini-3.1-pro-preview",
     },
     note: "three families, roughly 10x cheaper than default",

@@ -334,9 +334,36 @@ export default function (pi: ExtensionAPI) {
           const last = listRuns(ctx.cwd).find((r) => r.status !== "unreadable");
           if (!last) { say(ctx as never, "debate: no runs yet"); return; }
           const cost = typeof last.costUsd === "number" ? `$${last.costUsd.toFixed(4)}` : "$-";
+          const idle = `last ${last.runId} · ${last.status} · ${last.mode ?? "-"} · ${cost}`;
+          let diagnosis: string | null = null;
+          try {
+            const manifest = readManifest(last.manifestPath);
+            const failedSkeptic = [...manifest.turns].reverse().find(
+              (turn) => turn.role === "skeptic" && turn.status !== "ok" && turn.stderrTail,
+            );
+            if (failedSkeptic?.stderrTail) {
+              diagnosis = `Skeptic failed: ${failedSkeptic.stderrTail.slice(0, 220)}`;
+            } else if (manifest.artifact?.reason) {
+              diagnosis = `Corrected draft: not produced (${manifest.artifact.reason})`;
+            }
+          } catch { /* listRuns already reported an otherwise readable run */ }
+          // A notification can disappear before the user reads it. Status is an explicit
+          // request, so retain the concise idle state in the same visible widget used by
+          // active runs.
+          if (ctx.hasUI) {
+            ctx.ui.setStatus("debate", `IDLE · ${idle}`);
+            ctx.ui.setWidget("debate", [
+              "◇ Debate idle",
+              `  ${idle}`,
+              last.status === "partial"
+                ? "  Review is incomplete; inspect /debate last before relying on it."
+                : "  /debate last for the verdict · /debate runs for history",
+              ...(diagnosis ? [`  ${diagnosis}`] : []),
+            ]);
+          }
           say(ctx as never,
-            `debate: no run is active · last ${last.runId} was ${last.status} (${last.mode ?? "-"}, ${cost}). ` +
-            "Use /debate last for its verdict.");
+            `debate: no run is active · ${idle}.` +
+            (diagnosis ? ` ${diagnosis}` : " Use /debate last for its verdict."));
           return;
         }
 
