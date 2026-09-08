@@ -222,7 +222,7 @@ records a skip and the run is unaffected.
 ## Development
 
 ```bash
-npm test        # 597 checks, no tokens spent (hermetic: uses a throwaway PI_AGENT_DIR)
+npm test        # 633 checks, no tokens spent (hermetic: uses a throwaway PI_AGENT_DIR)
 ```
 
 Real-token tests are excluded on purpose; run `npx tsx test/runner-direct.test.ts`
