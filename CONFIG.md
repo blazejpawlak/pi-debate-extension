@@ -12,7 +12,7 @@ The project file is read only when pi trusts the exact directory it was launched
 it can redirect model spend. It is **not inherited by subdirectories**. The wizard asks to
 trust an untrusted project before writing its local config.
 
-Design doc: `debate-swarm-design.md`. Deviations from it are recorded in that file's §13.
+Technical implementation notes live in `docs/design/`; this reference covers supported user configuration.
 
 ---
 
@@ -34,16 +34,16 @@ One word sets all three role models. Applied after config merge; any explicit
 
 | tier | ideator | skeptic | synthesizer | cost | caveats |
 |---|---|---|---|---|---|
-| `free` | `ibm-services-essentials/claude-haiku-4-5` | same | `ibm-services-essentials/gemma-4-26b-a4b-it` | **$0** | Violates D8 (only 2 families, judge not fully independent). Gemma has no thinking support. Slow: ~13 min for a 6KB seed. Raise `timeouts.turnMs` to ≥240000. |
-| `cheap` | `ibm-services-essentials/claude-sonnet-5` | `openai-codex/gpt-5.4-mini` | `openrouter/google/gemini-3.1-pro-preview` | ~10× under default | 3 real families. **Skeptic needs the codex subscription** — quota-metered, so it can exhaust and recover (§13.41/§13.52). |
-| `default` | `openrouter/anthropic/claude-opus-4-8` | `openrouter/openai/gpt-5.6-sol` | `openrouter/google/gemini-3.1-pro-preview` | ~$0.81 projected on a 6KB seed | 3 families. Skeptic capped at $1.20/run by a default role budget (§13.41). |
-| `ibm` | `ibm-services-essentials/claude-opus-4-8` | `ibm-services-essentials/gpt-5.6-sol` | `ibm-services-essentials/gemini-3.7-flash` | **$0** (fixed-credit plan) | **3 distinct families, so D8 holds** — the only zero-dollar roster that keeps an independent judge. Worst case is quota exhaustion, not a bill. **Every USD cap is inert**, so the tier ships token caps instead; the verdict marks all costs `$0.0000 (?)`. Verified end to end: 2 rounds, 14 claims, 5 high-severity findings, 17 bash calls, $0.00 (§13.45). |
-| `strong` | `openrouter/anthropic/claude-opus-4-8` | `openai-codex/gpt-6-astra` | `openrouter/google/gemini-3.1-pro-preview` | $2.11 measured on a 6KB seed | The WP5 re-probe roster, kept for reproducibility. **Requires `openai-codex` quota** — otherwise the skeptic turn fails with a usage-limit error. Verified serving again 2026-09-08 (§13.52). Via OpenRouter instead, gpt-6-astra costs ~$3.54/run. |
+| `free` | `ibm-services-essentials/claude-haiku-4-5` | same | `ibm-services-essentials/gemma-4-26b-a4b-it` | **$0** | Entry-level option. The judge has no thinking support and uses a different model family. Use a generous time limit. |
+| `cheap` | `ibm-services-essentials/claude-sonnet-5` | `openai-codex/gpt-5.4-mini` | `openrouter/google/gemini-3.1-pro-preview` | lower than default | Three distinct perspectives. Requires an active Codex subscription for the Skeptic. |
+| `default` | `openrouter/anthropic/claude-opus-4-8` | `openrouter/openai/gpt-5.6-sol` | `openrouter/google/gemini-3.1-pro-preview` | paid | Balanced three-model roster. Uses `OPENROUTER_KEY`. |
+| `ibm` | `ibm-services-essentials/claude-opus-4-8` | `ibm-services-essentials/gpt-5.6-sol` | `ibm-services-essentials/gemini-3.7-flash` | **$0** | Recommended free roster with three distinct perspectives. Dollar caps do not apply; use time and token limits. |
+| `strong` | `openrouter/anthropic/claude-opus-4-8` | `openai-codex/gpt-6-astra` | `openrouter/google/gemini-3.1-pro-preview` | paid | Maximum scrutiny. Requires an active Codex subscription for the Skeptic. |
 
 `tier` unset = the `default` roster (it is baked into `models.*`).
 
 **All three `default` roles route through `OPENROUTER_KEY`.** If it is missing from the
-environment, every role fails rather than one degrading (§13.42). Remaining balance:
+environment, every role fails rather than one degrading. Remaining balance:
 `curl -s https://openrouter.ai/api/v1/credits -H "Authorization: Bearer $OPENROUTER_KEY"`.
 
 ---
@@ -66,7 +66,7 @@ environment, every role fails rather than one degrading (§13.42). Remaining bal
 ```
 
 **The shipped default already sets one of these:** `roles.skeptic.budget.usd = 1.2`, because
-the Skeptic is empirically ~95% of run cost (§13.41). Overriding `roles.skeptic.budget`
+the Skeptic usually accounts for most run cost. Overriding `roles.skeptic.budget`
 replaces that cap — set it higher only if you want a third verification round to run.
 
 | field | meaning |
@@ -137,7 +137,7 @@ Setting both of the first two warns and uses `roles`.
 ```
 
 `tokens` is the **always-on backstop**. A USD cap is only as real as the provider's
-price table — some providers report `cost.total = 0` for everything (see §13.14), which
+price table — some providers report `cost.total = 0` for everything, which
 would silently disable a dollar-only cap.
 
 | `costReporting` | behavior when a turn reports tokens but `cost.total == 0` |
@@ -158,7 +158,7 @@ for it.
   "runner": "direct",
   "mode": { "reviewThresholdChars": 2000 },
   "rounds": { "max": 3, "gateSeverity": "high" },
-  "timeouts": { "turnMs": 240000, "totalMs": 900000 },
+  "timeouts": { "turn": "4m", "total": "15m" },
   "repairs": { "max": 2 },
   "skeptic": { "allowBash": true, "freeAgreements": 1, "minFlaws": 3 },
   "synthesizer": { "inlineFullSeedUnderChars": 40000 },
@@ -170,7 +170,7 @@ for it.
 }
 ```
 
-- `runner`: `direct` (default) · `fake` (tests) · `harness` (not implemented, WP7)
+- `runner`: `direct` (default) · `fake` (testing only) · `harness` (not available)
 - `rounds.gateSeverity`: R3 only happens if a claim at or above this severity is still open
 - `skeptic.allowBash: false` downgrades the Skeptic to read-only tools
 - `inject`: `nextTurn` · `followUp` · `none` — how the verdict reaches your next prompt
@@ -196,20 +196,18 @@ verdict · 0 open high
 
 It **joins the channel automatically** on first publish (`join --create`), because `send`
 is refused for an unregistered agent. It speaks HTTP rather than shelling out to the CLI,
-because `pi-messenger-swarm send` **auto-spawns a detached daemon** and that failure path
-**exits 0** (§13.46).
+because `pi-messenger-swarm send` **auto-spawns a detached daemon** and may not report
+startup failures reliably.
 
 If the harness is down the publisher declines and records `publish_skipped`; it does not
-start it. D11 has been retired (§13.47) — the extension may start the harness — but it must
-**never `--stop` or `--restart`** it, since that is the only irreversible action that can
-break a session it does not own.
+start it. The extension may start the harness when configured, but it must **never `--stop`
+or `--restart`** it, since that can break a session it does not own.
 
 Digests are observational: a down, wedged, or refusing harness never fails, stalls, or
 alters a run.
 
-**Prerequisite on this machine:** `pi-messenger-swarm` ships without declaring its
-`@earendil-works/pi-coding-agent` dependency, so the daemon cannot start until it is
-linked (§13.47):
+If your installed `pi-messenger-swarm` package cannot start because it lacks the
+`@earendil-works/pi-coding-agent` dependency, link it once:
 
 ```bash
 ln -s "$(npm root -g)/@earendil-works/pi-coding-agent" \
@@ -237,9 +235,8 @@ judge has no tools and cannot read a file — under a heading marking it unverif
 outside the debate.
 
 **Comments never enter `ledger.json`.** `trust: "comments"` is the only level implemented,
-so §8.1 field permissions and §13.39 cross-author protection are untouched: nobody on the
-channel can assert a finding, set `severity` (which would force an extra round and spend
-money), or edit a reviewer's claim. A debater may *adopt* a comment as its own claim with
+so channel comments cannot assert a finding, set `severity` (which could force an extra
+round and spend money), or edit a reviewer's claim. A debater may *adopt* a comment as its own claim with
 its own evidence — that is the intended path, and it keeps the evidence discipline.
 
 **The verdict is still the Synthesizer's.** Comments can only persuade a model; they cannot
@@ -247,11 +244,11 @@ enter the record. The judge is explicitly told its decision must rest on the led
 
 | detail | behaviour |
 |---|---|
-| when read | at turn boundaries only — one bounded read, never a polling loop (§12) |
+| when read | at turn boundaries only — one bounded read, never a polling loop |
 | own digests | filtered out, so the debate never reacts to itself |
 | duplicates | suppressed by timestamp |
 | volume | capped by `maxComments`; each comment costs mission tokens in every later turn |
-| length | clipped at 400 chars — the harness does not cap message length (§13.48) |
+| length | clipped at 400 chars to keep external context bounded |
 | channel down | `external_read_skipped` event; the run is unaffected |
 
 Requires the harness running (see `publish` above). `channel` defaults to

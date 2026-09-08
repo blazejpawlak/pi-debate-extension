@@ -177,16 +177,16 @@ try {
     JSON.stringify({ models: { ideator: "ibm-services-essentials/claude-opus-5" } }),
   );
   const ibm = loadConfig(ws, true);
-  check("zero-cost provider is flagged (§13.14)",
-    ibm.warnings.some((w) => w.includes("cost.total=0")), ibm.warnings.join("; "));
+  check("unmetered provider is flagged without design-reference leakage",
+    ibm.warnings.some((w) => /USD caps cannot limit it/.test(w) && !/§|WP/.test(w)), ibm.warnings.join("; "));
 
   writeFileSync(
     join(ws, ".pi", "debate.json"),
     JSON.stringify({ models: { synthesizer: "opencode/gemini-3.1-pro" } }),
   );
   const oc = loadConfig(ws, true);
-  check("unfunded provider is flagged (§13.15)",
-    oc.warnings.some((w) => w.includes("CreditsError")), oc.warnings.join("; "));
+  check("unavailable-credit provider is flagged without design-reference leakage",
+    oc.warnings.some((w) => /no available credit/.test(w) && !/§|WP/.test(w)), oc.warnings.join("; "));
 
   console.log("\n-- resolveRoleModel: config beats frontmatter --");
   eq("config wins",

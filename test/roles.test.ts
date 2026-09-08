@@ -125,7 +125,7 @@ console.log("\n-- tiers (§13.30) --");
   check("free tier still triggers the D8 warning",
     warnings.some((w) => w.includes("D8 violation")), warnings.join("; "));
   check("free tier does NOT trigger the zero-cost provider warning",
-    !warnings.some((w) => w.includes("cost.total=0")), warnings.join("; "));
+    !warnings.some((w) => w.includes("does not report metered prices")), warnings.join("; "));
   rmSync(ws, { recursive: true, force: true });
 }
 {
@@ -157,8 +157,8 @@ console.log("\n-- ibm tier (§13.45): zero dollars, three families, token-bounde
   check("ibm tier has no D8 violation",
     !warnings.some((w) => w.includes("D8 violation")), warnings.join("; "));
   // The zero-cost warning MUST fire: it is telling the truth here (§13.14).
-  check("ibm tier surfaces the zero-cost-provider warning",
-    warnings.some((w) => w.includes("cost.total=0")), warnings.join("; "));
+  check("ibm tier surfaces an unmetered-provider warning",
+    warnings.some((w) => w.includes("does not report metered prices")), warnings.join("; "));
   // Not declared free, or that warning would be suppressed (§13.29) and the verdict
   // would print a fake $0.00 as if it were enforced.
   check("ibm roles are NOT marked free",
@@ -191,11 +191,12 @@ console.log("\n-- ibm tier (§13.45): zero dollars, three families, token-bounde
   const { config, warnings } = loadConfig(ws, true);
   const r = resolveAllRoles(config);
   eq("pinned paid model wins over the tier", r.skeptic.ref, "openrouter/openai/gpt-5.6-sol");
-  check("the pinned paid role is not warned about as zero-cost",
-    !warnings.some((w) => w.includes('roles.skeptic uses provider "ibm-services-essentials"')),
+  check("the pinned paid role leaves no OpenRouter unmetered warning",
+    !warnings.some((w) => w.includes('provider "openrouter"')),
     warnings.join("; "));
-  check("the remaining ibm roles are still warned about",
-    warnings.some((w) => w.includes('roles.ideator uses provider "ibm-services-essentials"')));
+  check("the remaining IBM roles produce one provider warning",
+    warnings.filter((w) => w.includes('provider "ibm-services-essentials"')).length === 1,
+    warnings.join("; "));
   rmSync(ws, { recursive: true, force: true });
 }
 {

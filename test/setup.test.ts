@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULTS, loadConfig, type DebateConfig } from "../config.ts";
-import { runSetupWizard, type SetupContext } from "../setup.ts";
+import { runSetupWizard, tierPickerLabel, TIER_PICKER_COPY, type SetupContext } from "../setup.ts";
 
 let pass = 0;
 let fail = 0;
@@ -16,7 +16,22 @@ function eq(name: string, got: unknown, want: unknown): void {
   check(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
 }
 
+console.log("\n-- public tier picker copy --");
+const ibmLabel = tierPickerLabel("ibm", (provider) => provider === "ibm-services-essentials");
+eq("recommended profile is first-class public copy", ibmLabel,
+  "IBM (recommended) · $0 · 3 distinct model perspectives · IBM ✓");
+check("picker copy has no design-document leakage",
+  !/§|WP|D8|quota|probe|cost\.total/i.test(Object.values(TIER_PICKER_COPY).map((c) => `${c.name} ${c.cost} ${c.summary}`).join(" ")));
+const strongLabel = tierPickerLabel("strong", () => false);
+check("missing credentials are readable", strongLabel.includes("OpenRouter · sign in") && strongLabel.includes("Codex · sign in"), strongLabel);
+check("profile labels stay compact for an 80-column terminal", Math.max(ibmLabel.length, strongLabel.length) <= 80,
+  `${ibmLabel.length}/${strongLabel.length}`);
+
 console.log("\n-- setup wizard (§13.55) --");
+// The full suite supplies an isolated PI_AGENT_DIR; retain direct `tsx test/setup.test.ts`
+// usability as well, so this test never touches a developer's real trust store.
+const createdAgentDir = process.env.PI_AGENT_DIR ? null : mkdtempSync(join(tmpdir(), "debate-setup-agent-"));
+if (createdAgentDir) process.env.PI_AGENT_DIR = createdAgentDir;
 const workspace = mkdtempSync(join(tmpdir(), "debate-setup-"));
 const notices: string[] = [];
 const selects: string[] = [];
@@ -35,7 +50,7 @@ const ctx = {
     select: async (title: string, options: string[]) => {
       selects.push(title);
       if (title.startsWith("Where")) return options.find((value) => value.startsWith("This project"));
-      if (title.startsWith("Choose")) return options.find((value) => value.startsWith("ibm —"));
+      if (title.startsWith("Choose")) return options.find((value) => value.startsWith("IBM (recommended)"));
       throw new Error(`unexpected select: ${title}`);
     },
     confirm: async () => confirms.shift() ?? false,
@@ -69,6 +84,10 @@ try {
   check("UI says where it saved", notices.some((notice) => notice.includes("Saved")), notices.join("; "));
 } finally {
   rmSync(workspace, { recursive: true, force: true });
+  if (createdAgentDir) {
+    rmSync(createdAgentDir, { recursive: true, force: true });
+    delete process.env.PI_AGENT_DIR;
+  }
 }
 
 if (fail) {

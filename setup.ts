@@ -57,6 +57,45 @@ type Scope = "global" | "local";
 const FREE_PROVIDER = "ibm-services-essentials";
 const RECOMMENDED_TIER = "ibm";
 
+/**
+ * Public picker copy — deliberately separate from TIERS' engineering notes. `TIERS.note`
+ * records historical probes and implementation rationale; it must never become end-user
+ * UI copy. Keep labels compact enough for an 80-column terminal.
+ */
+export const TIER_PICKER_COPY: Record<string, { name: string; cost: string; summary: string }> = {
+  ibm: {
+    name: "IBM (recommended)",
+    cost: "$0",
+    summary: "3 distinct model perspectives",
+  },
+  free: {
+    name: "Free starter",
+    cost: "$0",
+    summary: "limited independent review",
+  },
+  cheap: {
+    name: "Lower cost",
+    cost: "low cost",
+    summary: "3 distinct model perspectives",
+  },
+  default: {
+    name: "Balanced",
+    cost: "paid",
+    summary: "high-quality 3-model review",
+  },
+  strong: {
+    name: "Max scrutiny",
+    cost: "paid",
+    summary: "needs Codex access",
+  }
+};
+const TIER_PICKER_ORDER = ["ibm", "free", "cheap", "default", "strong"];
+const PROVIDER_DISPLAY: Record<string, string> = {
+  "ibm-services-essentials": "IBM",
+  "openai-codex": "Codex",
+  openrouter: "OpenRouter",
+};
+
 function agentDir(): string {
   return process.env.PI_AGENT_DIR?.trim() || join(homedir(), ".pi", "agent");
 }
@@ -88,7 +127,22 @@ function authLabel(ctx: SetupContext, provider: string): string {
   // This is intentionally a credential-resolution check, not a paid model probe:
   // selecting a roster must not itself consume tokens or create a bill. It is evaluated
   // against pi's live session registry on every wizard invocation (env/stored/OAuth).
-  return auth.configured ? "credentials configured" : "NO credentials";
+  return auth.configured ? "configured" : "sign in needed";
+}
+
+/** Compact, public-only tier label for pi's string-only select dialog. */
+export function tierPickerLabel(
+  tier: string,
+  providerConfigured: (provider: string) => boolean,
+): string {
+  const copy = TIER_PICKER_COPY[tier];
+  if (!copy || !TIERS[tier]) throw new Error(`unknown debate tier: ${tier}`);
+  const providers = [...new Set(Object.values(TIERS[tier]!.models).map((model) => splitModel(model)[0]))];
+  const badges = providers.map((provider) => {
+    const name = PROVIDER_DISPLAY[provider] ?? provider;
+    return providerConfigured(provider) ? `${name} ✓` : `${name} · sign in`;
+  });
+  return `${copy.name} · ${copy.cost} · ${copy.summary} · ${badges.join(" ")}`;
 }
 
 function knownModels(ctx: SetupContext, recommended: Record<Role, string>): string[] {
@@ -320,14 +374,19 @@ export async function runSetupWizard(
     }
   }
 
-  const tierChoices = Object.entries(TIERS).map(([name, value]) => {
-    const providers = [...new Set(Object.values(value.models).map((model) => splitModel(model)[0]))];
-    const auth = providers.map((provider) => `${provider}: ${authLabel(ctx, provider)}`).join(", ");
-    return `${name}${name === RECOMMENDED_TIER ? " — recommended" : ""} · ${value.note} · ${auth}`;
-  });
-  const tierChoice = await ctx.ui.select("Choose a recommended model roster", tierChoices);
+  const tierChoices = TIER_PICKER_ORDER
+    .filter((tier) => TIERS[tier] !== undefined)
+    .map((tier) => ({
+      tier,
+      label: tierPickerLabel(tier, (provider) => ctx.modelRegistry.getProviderAuthStatus(provider).configured),
+    }));
+  const tierChoice = await ctx.ui.select(
+    "Choose a review profile",
+    tierChoices.map((choice) => choice.label),
+  );
   if (tierChoice === undefined) return null;
-  const tier = tierChoice.split(/ — | · /)[0]!;
+  const tier = tierChoices.find((choice) => choice.label === tierChoice)?.tier;
+  if (!tier) throw new Error("selected an unknown review profile");
 
   const models = await chooseModels(ctx, tier);
   if (!models) return null;

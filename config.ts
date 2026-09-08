@@ -271,16 +271,11 @@ export const DESIGN_MODELS = {
 /** Providers WP0 proved cannot support the cost cap or cannot run at all. */
 export const PROVIDER_WARNINGS: Record<string, string> = {
   "ibm-services-essentials":
-    "reports cost.total=0 for all models (fixed-credit plan), so USD budget caps cannot bind (§13.14)",
+    "does not report metered prices, so USD caps cannot limit it; use token and time limits",
   opencode:
-    "returned 401 CreditsError (insufficient balance) during WP0 (§13.15)",
-  // §13.52: the 2026-09-07 usage limit RECOVERED on 2026-09-08 (gpt-5.5 and
-  // gpt-6-astra both verified serving with real cost). Kept as a note rather than
-  // deleted, because a subscription limit is transient by nature and the failure
-  // mode -- stopReason:"error", "usage limit has been reached" -- is worth naming.
+    "has no available credit; choose another provider or add credit before running a debate",
   "openai-codex":
-    "subscription-metered: quota can exhaust and then recover, failing turns with " +
-    "stopReason:error \"usage limit has been reached\" (§13.41/§13.52)",
+    "uses subscription quota; a turn can stop when the quota is exhausted and work again later",
 };
 
 /**
@@ -731,7 +726,11 @@ function validate(c: DebateConfig, warnings: string[]): void {
     // §13.14's warning is about a broken price table. A model declared free reports
     // cost 0 legitimately, so warning about it would train the user to ignore warnings.
     if (provider && PROVIDER_WARNINGS[provider] && !declaredFree) {
-      warnings.push(`roles.${role} uses provider "${provider}": ${PROVIDER_WARNINGS[provider]}`);
+      // One concise provider warning is enough. Repeating the same IBM warning once per
+      // role made the first screen of `/debate setup` look broken before the user had
+      // chosen anything.
+      const warning = `provider "${provider}": ${PROVIDER_WARNINGS[provider]}`;
+      if (!warnings.includes(warning)) warnings.push(warning);
     }
 
     // A free role with no token cap is unbounded in everything but wall clock.
