@@ -3,6 +3,12 @@
 # Real-token tests are run explicitly: test/runner-direct.test.ts (WP4).
 set -uo pipefail
 cd "$(dirname "$0")/.."
+# §13.54: run against an EMPTY agent dir so the developer's real global settings.json
+# cannot change results. Without this, adding a "debate" block to your own settings
+# breaks suites that assert on default resolution.
+PI_AGENT_DIR="$(mktemp -d)"
+export PI_AGENT_DIR
+trap 'rm -rf "$PI_AGENT_DIR"' EXIT
 fail=0
 for t in test/wp1.test.ts test/ledger.test.ts test/roles.test.ts test/wp5-fixes.test.ts test/e2e-fake.ts test/wp6.test.ts test/wp7.test.ts test/runner-direct-offline.test.ts; do
   printf '%-42s ' "$t"

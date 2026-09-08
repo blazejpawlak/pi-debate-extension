@@ -487,7 +487,15 @@ export function loadConfig(cwd: string, projectTrusted = true): LoadedConfig {
   const warnings: string[] = [];
   const sources: string[] = ["defaults"];
 
-  const globalSettingsPath = join(homedir(), ".pi", "agent", "settings.json");
+  // §13.54: allow the agent dir to be overridden so tests are hermetic. Previously this
+  // was hardcoded to homedir(), so `npm test` silently read the developer's REAL global
+  // config -- writing a `debate` block into settings.json broke two suites that assert
+  // on default resolution. PI_AGENT_DIR is also what pi itself uses, so honouring it is
+  // correct behaviour, not just a test hook.
+  const agentDir = process.env.PI_AGENT_DIR?.trim()
+    ? process.env.PI_AGENT_DIR.trim()
+    : join(homedir(), ".pi", "agent");
+  const globalSettingsPath = join(agentDir, "settings.json");
   const globalSettings = readJsonIfPresent(globalSettingsPath, warnings) as
     | { debate?: unknown }
     | undefined;
