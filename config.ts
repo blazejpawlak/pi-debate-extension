@@ -544,8 +544,13 @@ function applyTier(c: DebateConfig, tier: string, warnings: string[]): void {
   c.roles ??= { ideator: {}, skeptic: {}, synthesizer: {} };
   for (const role of ROLES) {
     c.roles[role] ??= {};
-    // An explicit per-role model always beats the tier.
-    if (c.roles[role]!.model) continue;
+    // An explicit per-role model always beats the tier. Clear the legacy default too:
+    // otherwise the wizard's perfectly valid custom choice produces a scary, redundant
+    // "both models" warning solely because DEFAULTS still carries the old flat model.
+    if (c.roles[role]!.model) {
+      c.models[role] = null;
+      continue;
+    }
     c.roles[role]!.model = t.models[role];
     // Clear the legacy flat entry so it cannot shadow the tier during resolution.
     c.models[role] = null;
@@ -759,8 +764,8 @@ function validate(c: DebateConfig, warnings: string[]): void {
   }
   if (fams.length === 3 && new Set(fams).size < 3) {
     warnings.push(
-      `D8 violation: roles span only ${new Set(fams).size} model family/families (${fams.join(", ")}). ` +
-        `A judge from the same family as a debater is biased toward it.`,
+      `model diversity warning: roles span only ${new Set(fams).size} model family/families (${fams.join(", ")}). ` +
+        `Choose different providers or model families for more independent review.`,
     );
   }
 

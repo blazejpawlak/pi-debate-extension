@@ -102,7 +102,7 @@ time caps, swarm integration.
 /debate @plan.md              review a file
 /debate <text>                review inline text (mode auto-selected)
 /debate --mode explore ...    force explore mode (short ideas)
-/debate status                progress of the active run
+/debate status                refresh live progress; shows last run when idle
 /debate abort                 kill children, mark aborted
 /debate resume <run-id>       continue a crashed run
 /debate last                  print the last verdict
@@ -114,6 +114,11 @@ Also available as a tool the agent can call itself:
 ```
 debate_run { "seedFile": "plan.md", "dryRun": true }
 ```
+
+While a debate runs, a persistent **◆ Debate running** widget above the editor refreshes every
+second with its phase, elapsed time, completed cost/tokens, and live current-turn usage. It also
+shows the active tool when the Skeptic is checking evidence. `/debate status` refreshes that
+widget; once idle it gives a concise last-run summary instead of doing nothing.
 
 `dryRun` resolves models, counts turns, and estimates cost **without invoking any model** —
 worth doing first on a large seed:

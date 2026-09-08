@@ -121,9 +121,9 @@ console.log("\n-- tiers (§13.30) --");
   eq("free tier skeptic", r.skeptic.ref, "ibm-services-essentials/claude-haiku-4-5");
   eq("free tier synthesizer", r.synthesizer.ref, "ibm-services-essentials/gemma-4-26b-a4b-it");
   check("all free tier roles marked free", r.ideator.free && r.skeptic.free && r.synthesizer.free);
-  // The free tier cannot satisfy D8; that must be surfaced, not hidden.
-  check("free tier still triggers the D8 warning",
-    warnings.some((w) => w.includes("D8 violation")), warnings.join("; "));
+  // A same-family roster must be surfaced, not hidden.
+  check("free tier still triggers the model-diversity warning",
+    warnings.some((w) => w.includes("model diversity warning")), warnings.join("; "));
   check("free tier does NOT trigger the zero-cost provider warning",
     !warnings.some((w) => w.includes("does not report metered prices")), warnings.join("; "));
   rmSync(ws, { recursive: true, force: true });
@@ -135,8 +135,8 @@ console.log("\n-- tiers (§13.30) --");
   const r = resolveAllRoles(config);
   eq("cheap tier spans 3 families",
      new Set([r.ideator.family, r.skeptic.family, r.synthesizer.family]).size, 3);
-  check("cheap tier has no D8 violation",
-    !warnings.some((w) => w.includes("D8 violation")), warnings.join("; "));
+  check("cheap tier has no model-diversity warning",
+    !warnings.some((w) => w.includes("model diversity warning")), warnings.join("; "));
   rmSync(ws, { recursive: true, force: true });
 }
 
@@ -154,8 +154,8 @@ console.log("\n-- ibm tier (§13.45): zero dollars, three families, token-bounde
   eq("ibm synthesizer", r.synthesizer.ref, "ibm-services-essentials/gemini-3.7-flash");
   eq("ibm tier spans 3 families (D8 holds, unlike `free`)",
      new Set([r.ideator.family, r.skeptic.family, r.synthesizer.family]).size, 3);
-  check("ibm tier has no D8 violation",
-    !warnings.some((w) => w.includes("D8 violation")), warnings.join("; "));
+  check("ibm tier has no model-diversity warning",
+    !warnings.some((w) => w.includes("model diversity warning")), warnings.join("; "));
   // The zero-cost warning MUST fire: it is telling the truth here (§13.14).
   check("ibm tier surfaces an unmetered-provider warning",
     warnings.some((w) => w.includes("does not report metered prices")), warnings.join("; "));

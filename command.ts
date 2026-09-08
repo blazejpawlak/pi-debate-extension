@@ -106,7 +106,7 @@ export const HELP_TEXT = [
   "/debate @path/to/file.md    debate a file (review mode)",
   "/debate setup               guided setup: choose models, guardrails, and topic",
   "/debate --mode explore ...  force a mode",
-  "/debate status              show progress of the active run",
+  "/debate status              refresh live progress (or show the last run when idle)",
   "/debate abort               kill children, mark aborted",
   "/debate resume <run-id>     continue a crashed run",
   "/debate last                print the last verdict summary",

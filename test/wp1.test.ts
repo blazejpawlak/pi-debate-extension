@@ -169,8 +169,8 @@ try {
     }),
   );
   const same = loadConfig(ws, true);
-  check("same-family judge/debater is flagged (D8)",
-    same.warnings.some((w) => w.includes("D8 violation")), same.warnings.join("; "));
+  check("same-family judge/debater is flagged in user-facing language",
+    same.warnings.some((w) => w.includes("model diversity warning") && !/D8|§/.test(w)), same.warnings.join("; "));
 
   writeFileSync(
     join(ws, ".pi", "debate.json"),

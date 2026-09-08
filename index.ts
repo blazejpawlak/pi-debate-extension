@@ -20,7 +20,7 @@ import { runSetupWizard } from "./setup.ts";
 import { listRuns, newRunId, runPaths } from "./paths.ts";
 import { parseCommand, selectMode, readSeedFile, estimateRun, HELP_TEXT } from "./command.ts";
 import { Orchestrator, sweepStaleRuns, type Progress, type RunOutcome } from "./orchestrator.ts";
-import { DirectRunner } from "./runner/direct.ts";
+import { DirectRunner, type DirectStreamEvent } from "./runner/direct.ts";
 import { FakeRunner } from "./runner/fake.ts";
 import type { TurnRunner } from "./runner/types.ts";
 import { readManifest, writeManifest } from "./manifest.ts";
@@ -28,7 +28,7 @@ import { openAtOrAbove } from "./ledger.ts";
 
 const PERSONA_DIR = join(import.meta.dirname, "personas");
 
-function makeRunner(cfg: DebateConfig, onProgress?: (p: unknown) => void): TurnRunner {
+function makeRunner(cfg: DebateConfig, onEvent?: (ev: DirectStreamEvent) => void): TurnRunner {
   switch (cfg.runner) {
     case "fake":
       // Only reachable if someone sets runner:"fake" in config; keeps tests honest.
@@ -38,7 +38,7 @@ function makeRunner(cfg: DebateConfig, onProgress?: (p: unknown) => void): TurnR
         'runner "harness" is not implemented yet (WP7). Use "direct" or "fake".',
       );
     default:
-      return new DirectRunner({ onEvent: onProgress ? () => onProgress(undefined) : undefined });
+      return new DirectRunner({ onEvent });
   }
 }
 
@@ -54,6 +54,12 @@ export default function (pi: ExtensionAPI) {
     orch: Orchestrator;
     runner: TurnRunner;
     progress: Progress | null;
+    /** Ephemeral child-stream data; never used for accounting or persisted. */
+    stream: DirectStreamEvent | null;
+    startedAtMs: number;
+    /** Limit stream-driven redraws; pi may emit many token updates per second. */
+    lastRenderMs: number;
+    ticker: ReturnType<typeof setInterval> | null;
   } | null = null;
 
   const say = (
@@ -66,19 +72,70 @@ export default function (pi: ExtensionAPI) {
     else process.stdout.write(text + "\n");
   };
 
-  /** Live status line + widget (§9.3). Cleared at the end of a run. */
-  function renderProgress(ctx: ExtensionCommandContext, p: Progress): void {
-    if (!ctx.hasUI) return;
-    const cost = p.costTrusted ? `$${p.costUsd.toFixed(2)}` : `$${p.costUsd.toFixed(2)}?`;
-    ctx.ui.setStatus("debate", `${p.phase} · ${fmtDuration(p.elapsedMs)} · ${cost}`);
-    const lines = [`debate ${p.runId} · ${p.phase} · ${cost} · ${p.tokens} tok`];
-    if (p.openHigh > 0) lines.push(`open high-severity: ${p.openHigh}`);
-    if (p.lintCount > 0) lines.push(`lint warnings: ${p.lintCount}`);
-    if (!p.costTrusted) lines.push("cost understated: a provider reports no price");
+  /** A concise human label for the phase stored in the manifest. */
+  function displayPhase(p: Progress | null): string {
+    if (!p) return "Starting";
+    if (p.role && p.round) return `Round ${p.round} · ${p.role}`;
+    return p.phase === "done" ? "Finishing verdict" : p.phase;
+  }
+
+  /**
+   * Persistent, self-refreshing live view. The previous widget updated only at turn
+   * boundaries, so a five-minute Skeptic turn looked frozen. `stream` is deliberately
+   * labelled live/estimated: manifest totals remain the sole accounting source.
+   */
+  function renderLive(ctx: ExtensionCommandContext, force = false): void {
+    if (!ctx.hasUI || !active) return;
+    const a = active;
+    const now = Date.now();
+    // `message_update` can arrive for every streamed token. Four redraws per second is
+    // visually live without making the TUI spend its time repainting itself.
+    if (!force && now - a.lastRenderMs < 250) return;
+    a.lastRenderMs = now;
+    const p = a.progress;
+    const elapsedMs = now - a.startedAtMs;
+    const completedCost = p?.costUsd ?? 0;
+    const completedTokens = p?.tokens ?? 0;
+    const costTrusted = p?.costTrusted ?? true;
+    const cost = `${costTrusted ? "$" : "$"}${completedCost.toFixed(2)}${costTrusted ? "" : "?"}`;
+    const phase = displayPhase(p);
+    ctx.ui.setStatus("debate", `RUNNING · ${phase} · ${fmtDuration(elapsedMs)} · ${cost}`);
+
+    const lines = [
+      "◆ Debate running",
+      `  ${phase}  ·  elapsed ${fmtDuration(elapsedMs)}  ·  completed ${cost}`,
+      `  ${completedTokens.toLocaleString()} completed tokens`,
+    ];
+    if (a.stream) {
+      const streamCost = a.stream.usageSoFar.cost.total;
+      const streamTokens = a.stream.usageSoFar.totalTokens;
+      const activity = a.stream.type === "tool_execution_start" && a.stream.toolName
+        ? ` · using ${a.stream.toolName}`
+        : "";
+      lines.push(
+        `  Current turn (live): ${a.stream.messageCount} request(s) · ` +
+        `${streamTokens.toLocaleString()} tokens · $${streamCost.toFixed(2)}${activity}`,
+      );
+    }
+    if ((p?.openHigh ?? 0) > 0) lines.push(`  ${p!.openHigh} open high-severity finding(s)`);
+    if ((p?.lintCount ?? 0) > 0) lines.push(`  ${p!.lintCount} lint warning(s)`);
+    lines.push("  /debate abort to stop · /debate status to refresh this view");
     ctx.ui.setWidget("debate", lines);
   }
 
+  function renderProgress(ctx: ExtensionCommandContext, p: Progress): void {
+    if (active) active.progress = p;
+    renderLive(ctx, true);
+  }
+
+  function startLiveTicker(ctx: ExtensionCommandContext): void {
+    if (!active) return;
+    renderLive(ctx, true);
+    active.ticker = setInterval(() => renderLive(ctx, true), 1_000);
+  }
+
   function clearProgress(ctx: ExtensionCommandContext): void {
+    if (active?.ticker) clearInterval(active.ticker);
     if (!ctx.hasUI) return;
     ctx.ui.setStatus("debate", undefined as unknown as string);
     ctx.ui.setWidget("debate", undefined as unknown as string[]);
@@ -91,15 +148,23 @@ export default function (pi: ExtensionAPI) {
     opts: { seedText: string; seedSource: string; mode: Mode; rounds?: number },
   ): Promise<RunOutcome> {
     const runId = newRunId();
-    const runner = makeRunner(cfg);
+    // The runner is constructed before the orchestrator, so route stream events through
+    // this closure once `active` exists. Stream usage is UI-only; manifest totals update
+    // only when a turn completes.
+    const runner = makeRunner(cfg, (event) => {
+      if (active?.runId !== runId) return;
+      active.stream = event;
+      renderLive(ctx);
+    });
     const orch = new Orchestrator({
       workspace: ctx.cwd, cfg, runner, personaDir: PERSONA_DIR,
-      onProgress: (p) => {
-        if (active) active.progress = p;
-        renderProgress(ctx, p);
-      },
+      onProgress: (p) => renderProgress(ctx, p),
     });
-    active = { runId, orch, runner, progress: null };
+    active = {
+      runId, orch, runner, progress: null, stream: null,
+      startedAtMs: Date.now(), lastRenderMs: 0, ticker: null,
+    };
+    startLiveTicker(ctx);
     try {
       return await orch.start(runId, opts);
     } finally {
@@ -254,13 +319,23 @@ export default function (pi: ExtensionAPI) {
         }
 
         case "status": {
-          if (!active) { say(ctx as never, "debate: no active run"); return; }
-          const p = active.progress;
-          say(ctx as never, p
-            ? `debate ${p.runId} · ${p.phase} · ${fmtDuration(p.elapsedMs)} · ` +
-              `$${p.costUsd.toFixed(4)} · ${p.tokens} tok · open high ${p.openHigh}` +
-              (p.costTrusted ? "" : " · cost understated")
-            : `debate ${active.runId} · starting`);
+          if (active) {
+            renderLive(ctx, true);
+            const p = active.progress;
+            say(ctx as never, p
+              ? `debate is running · ${displayPhase(p)} · ${fmtDuration(Date.now() - active.startedAtMs)} · ` +
+                `$${p.costUsd.toFixed(4)} completed · ${p.tokens} completed tokens`
+              : `debate is starting · ${active.runId}`);
+            return;
+          }
+          // Status should still be useful after a run ends. Avoid dumping the entire
+          // verdict (that is `/debate last`); give the one-line run state instead.
+          const last = listRuns(ctx.cwd).find((r) => r.status !== "unreadable");
+          if (!last) { say(ctx as never, "debate: no runs yet"); return; }
+          const cost = typeof last.costUsd === "number" ? `$${last.costUsd.toFixed(4)}` : "$-";
+          say(ctx as never,
+            `debate: no run is active · last ${last.runId} was ${last.status} (${last.mode ?? "-"}, ${cost}). ` +
+            "Use /debate last for its verdict.");
           return;
         }
 
@@ -312,12 +387,20 @@ export default function (pi: ExtensionAPI) {
             say(ctx as never, `debate: no such run: ${cmd.runId}`, "error");
             return;
           }
-          const runner = makeRunner(config);
+          const runner = makeRunner(config, (event) => {
+            if (active?.runId !== cmd.runId) return;
+            active.stream = event;
+            renderLive(ctx);
+          });
           const orch = new Orchestrator({
             workspace: ctx.cwd, cfg: config, runner, personaDir: PERSONA_DIR,
-            onProgress: (pr) => { if (active) active.progress = pr; renderProgress(ctx, pr); },
+            onProgress: (pr) => renderProgress(ctx, pr),
           });
-          active = { runId: cmd.runId, orch, runner, progress: null };
+          active = {
+            runId: cmd.runId, orch, runner, progress: null, stream: null,
+            startedAtMs: Date.now(), lastRenderMs: 0, ticker: null,
+          };
+          startLiveTicker(ctx);
           try {
             const out = await orch.resume(cmd.runId);
             deliver(ctx, out, config);
