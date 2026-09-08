@@ -187,9 +187,13 @@ export const PROVIDER_WARNINGS: Record<string, string> = {
     "reports cost.total=0 for all models (fixed-credit plan), so USD budget caps cannot bind (§13.14)",
   opencode:
     "returned 401 CreditsError (insufficient balance) during WP0 (§13.15)",
+  // §13.52: the 2026-09-07 usage limit RECOVERED on 2026-09-08 (gpt-5.5 and
+  // gpt-6-astra both verified serving with real cost). Kept as a note rather than
+  // deleted, because a subscription limit is transient by nature and the failure
+  // mode -- stopReason:"error", "usage limit has been reached" -- is worth naming.
   "openai-codex":
-    "subscription usage limit was reached 2026-09-07; turns fail with " +
-    "stopReason:error \"usage limit has been reached\" (§13.41)",
+    "subscription-metered: quota can exhaust and then recover, failing turns with " +
+    "stopReason:error \"usage limit has been reached\" (§13.41/§13.52)",
 };
 
 /**
@@ -427,7 +431,8 @@ export const TIERS: Record<string, {
     },
     note:
       "three families; skeptic on gpt-5.6-sol after the codex subscription was " +
-      "exhausted and the 16.6x cost ruling (§13.41)",
+      "exhausted and the 16.6x cost ruling (§13.41); the codex quota later " +
+      "recovered (§13.52) but the cheaper roster was kept",
   },
   /**
    * The pre-§13.41 roster: skeptic on `openai-codex/gpt-6-astra`. Kept so the WP5
