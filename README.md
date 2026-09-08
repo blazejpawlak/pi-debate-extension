@@ -1,55 +1,237 @@
 # pi Debate Extension
 
-A pi coding-agent extension that runs a structured multi-model debate: Ideator vs Skeptic with an independent Synthesizer verdict.
+Run a structured, adversarial multi-model review inside [pi](https://github.com/earendil-works/pi-coding-agent).
 
-## Status
+Instead of asking one model "is this plan any good?", this runs three models in defined
+roles against each other:
 
-- WP0–WP8 complete (WP7's harness-runner half intentionally unbuilt).
-- Offline fake-runner suite: 587 checks passing.
-- Typecheck clean for pure extension logic.
-- WP6 complete: abort persistence, verdict entry renderer, full-verdict injection, testable stale-run sweep.
-- WP7 publisher done (`publish.ts`, swarm-channel digests, off by default). The `harness` **runner** half is deliberately unbuilt: it would drop usage/cost reporting and degrade budget enforcement to time only (§1.1/§6.4).
-- Two-way channel participation at `trust: "comments"`: other agents can comment into a debate; comments reach the debaters and the judge but never the ledger.
-- **WP8 done: decision KEEP.** On `tier: "ibm"` the debate and a strong single-model baseline both cost $0.00; 7 of 10 topics were found independently by both arms. See `docs/eval/full-20260908.md`. Recommended usage: explicit `/debate`, plus a baseline review when the decision is irreversible.
+- **Ideator** proposes and defends.
+- **Skeptic** attacks, and must **execute commands to prove** its claims — assertions
+  without evidence are flagged, not accepted.
+- **Synthesizer** judges. It has no tools, and never sees who said what.
 
-Architecture and diagrams: `docs/ARCHITECTURE.md`. See `docs/handoff-wp6.md` for the latest handoff and `docs/design/debate-swarm-design.md` for the work order.
+Everything the models exchange is a **structured claim ledger**, not prose. You get a
+verdict with a decision, a confidence figure, a minority report, kill criteria, and
+per-claim evidence you can audit.
 
-## Local development
-
-```bash
-npm install
-npm test
+```
+/debate @migration-plan.md
 ```
 
-Real-token tests are intentionally excluded from `npm test`; run `npx tsx test/runner-direct.test.ts` explicitly when needed.
+```
+Claims: 27 (open 24 · disputed 3)   Unsettled at high+ severity: 8
 
-## Linking into pi
+## 2. Decision
+proceed-with-changes
 
-The recommended local setup is a symlink from pi's global extension discovery directory:
+## 4. Minority report
+- Git completeness verification [A12, B8]: an initial proposal suggested `git fsck --full`
+  and object counts were sufficient. B8 refuted this by proving internal object validity
+  does not verify source-to-destination equality, leading to the adoption of full
+  object-ID sets and working-tree hash auditing.
+```
+
+## Why you might want this
+
+It is worth the extra time when **being wrong is expensive** — an irreversible migration,
+a production cutover, a security-relevant change. It is not worth it for routine review.
+
+Measured on a 51.8KB migration plan against a single strong model with bash and a
+self-critique pass ([full report](docs/eval/full-20260908.md)):
+
+| | debate | single-model baseline |
+|---|---|---|
+| Cost (free tier) | **$0.00** | **$0.00** |
+| Wall clock | 10m 27s | 5m 54s |
+| Commands executed | 36 | 21 |
+| Findings | 27 claims, **all evidenced** | 7 verified flaws |
+
+**7 of 10 issues were found independently by both**, which is the corroboration this
+design exists to produce. The debate uniquely found 4 more — including two that critique
+*the Ideator's own proposed fixes*, which a single-pass review has no way to reach.
+
+**Read this part too:** the baseline found **3 real issues the debate missed**, two of them
+simple facts about the machine. The honest recommendation is to run both when the decision
+is irreversible; the union beats either alone. This is a second opinion, not a replacement.
+
+## Install
+
+Requires pi and Node 24+.
 
 ```bash
+git clone https://github.com/blazejpawlak/pi-debate-extension.git ~/Projects/pi-debate-extension
+cd ~/Projects/pi-debate-extension && npm install
 ln -s ~/Projects/pi-debate-extension ~/.pi/agent/extensions/debate
 ```
 
-This keeps the GitHub repository as the editable source while pi continues to auto-discover the `debate` extension.
+pi auto-discovers it. Verify with `/debate` in any session.
 
-## Repository layout
+> Load via auto-discovery, **not** `pi -e <path>` — the extension already lives in the
+> discovery directory, so `-e` registers it twice and aborts with a tool conflict.
+
+## Configure
+
+Layered, later wins: **built-in defaults → `~/.pi/agent/settings.json` `"debate"` →
+`<workspace>/.pi/debate.json`** (project file honoured only for a trusted project, since
+it can redirect model spend).
+
+The one setting most people want, because it makes runs free:
+
+```json
+{ "debate": { "tier": "ibm" } }
+```
+
+| tier | roles | cost | note |
+|---|---|---|---|
+| `ibm` | all three on `ibm-services-essentials` | **$0** | three distinct model families, so the judge stays independent |
+| `free` | IBM free models | **$0** | only two families — judge not fully independent |
+| `default` | OpenRouter Claude / GPT / Gemini | ~$0.81 per 6KB seed | strongest metered roster |
+| `strong` | + `openai-codex/gpt-6-astra` skeptic | ~$2.11 measured | needs codex quota |
+
+Full reference: **[CONFIG.md](CONFIG.md)** — per-role models, budgets, tool allowlists,
+time caps, swarm integration.
+
+## Use
+
+```
+/debate @plan.md              review a file
+/debate <text>                review inline text (mode auto-selected)
+/debate --mode explore ...    force explore mode (short ideas)
+/debate status                progress of the active run
+/debate abort                 kill children, mark aborted
+/debate resume <run-id>       continue a crashed run
+/debate last                  print the last verdict
+/debate runs                  list runs with status and cost
+```
+
+Also available as a tool the agent can call itself:
+
+```
+debate_run { "seedFile": "plan.md", "dryRun": true }
+```
+
+`dryRun` resolves models, counts turns, and estimates cost **without invoking any model** —
+worth doing first on a large seed:
+
+```
+mode: review
+seed: plan.md (51839 chars)
+models: ideator=ibm-services-essentials/claude-opus-4-8
+        skeptic=ibm-services-essentials/gpt-5.6-sol
+        synthesizer=ibm-services-essentials/gemini-3.7-flash
+max model turns: 7 (+ up to 2 repairs)
+estimated cost: $0.00 - every role is on a provider that bills nothing
+time cap: 2700s total, 420s per turn, +420s verdict grace
+```
+
+## What it produces
+
+```
+<workspace>/debate_verdict.md          latest verdict, copied to the root
+<workspace>/.debate/runs/<run-id>/
+  manifest.json   models, per-turn tokens/cost/duration, status, config snapshot
+  ledger.json     every claim with evidence, severity, status history
+  events.jsonl    append-only audit trail
+  turns/          each model's raw output
+  judge/          exactly what the judge was shown
+```
+
+Runs are **resumable** (`/debate resume <run-id>`) and a crashed run is never re-paid for:
+a turn that completed and merged is skipped on replay.
+
+## Cost and time controls
+
+Two-level spend enforcement, plus time:
+
+| limit | scope | on breach |
+|---|---|---|
+| `budget.perTurnUsd` / `perTurnTokens` | one turn, checked **mid-stream** | child killed |
+| `budget.usd` / `tokens` | whole run | rounds stop, `partial` verdict |
+| `roles.<role>.budget.*` | one role | that role skipped, run continues |
+| `timeouts.turnMs` | one turn | killed, one repair attempt |
+| `timeouts.totalMs` | whole run | rounds stop, **verdict still runs** |
+| `timeouts.verdictGraceMs` | the judge | mechanical verdict written |
+
+A role budget can only ever narrow, never widen — adding one cannot increase total spend.
+There is no configuration that produces an endless debate: every path terminates in a
+verdict file, even when every budget is exhausted.
+
+**Important caveat on dollar figures.** Some providers (including IBM) report
+`cost.total = 0` for every model. Where that happens the USD caps **cannot bind**, token
+and time caps are the real limits, and every cost figure is marked `$0.0000 (?)` with an
+explicit "cost figures are understated" note. No run ever presents a fake `$0.00` as fact.
+
+## Swarm integration (optional, off by default)
+
+If you use [`pi-messenger-swarm`](https://www.npmjs.com/package/pi-messenger-swarm), a
+debate can post progress to a channel and read other agents' comments.
+
+```json
+{
+  "publish":     { "enabled": true, "channel": "debate" },
+  "participate": { "enabled": true, "channel": "debate", "maxComments": 5, "trust": "comments" }
+}
+```
+
+```
+debate-orchestrator → #debate: R1 skeptic · 2 open high · B1,B2
+debate-orchestrator → #debate: verdict · 3 open high · B1,B2,B4
+```
+
+Comments from other agents are shown to the debaters **and** the judge, labelled
+unverified. **They never enter the ledger** — nobody on a channel can assert a finding,
+set severity, or edit a reviewer's claim. A debater may adopt a comment as its own claim
+with its own evidence; that keeps the evidence discipline intact.
+
+The publisher speaks HTTP and **will not start the harness** — if the daemon is down it
+records a skip and the run is unaffected.
+
+## Known limitations
+
+- **Cost figures are only as real as the provider's price table** (see above).
+- **On a zero-dollar tier, time and tokens are your only guardrails.** Defaults are sized
+  for it, but a very large seed deserves a `dryRun` first.
+- **The judge sees excerpts, not always the whole document.** Above
+  `synthesizer.inlineFullSeedUnderChars` it receives resolved `sourceRef` spans instead.
+- **Swarm channel history is pruned** (`feedRetention`), so a long debate on a busy
+  channel can miss comments. Fine for opinions; do not make it correctness-critical.
+- **Evaluated on one document, single-shot per arm.** Treat the comparison table as
+  indicative.
+- **Trust the evidence, not the confidence number.** Several fixed defects all made output
+  look *cleaner* than reality — fewer open items, tidier numbers. The ledger's per-claim
+  evidence is the trustworthy artifact.
+
+## Development
+
+```bash
+npm test        # 587 checks, no tokens spent
+```
+
+Real-token tests are excluded on purpose; run `npx tsx test/runner-direct.test.ts`
+explicitly. Architecture and module map: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 | Path | Contents |
 | --- | --- |
-| `index.ts` | Extension registration and glue (not unit-testable; needs pi's loader) |
-| `command.ts` | Pure argument/mode parsing |
+| `index.ts` | Registration and glue only |
+| `command.ts` | Argument/mode parsing, cost estimation |
 | `config.ts` | Layered config, tiers, per-role resolution |
 | `orchestrator.ts` | State machine, budgets, repair, resume |
-| `ledger.ts` | Claim ledger contract and write-permission enforcement |
-| `excerpts.ts` | `sourceRef` → seed span resolution |
-| `prompts.ts` | Mission assembly |
-| `verdict.ts` | Verdict rendering |
-| `manifest.ts` | Run manifest and `events.jsonl` |
-| `runner/` | `direct.ts` (real models), `fake.ts` (offline), shared types |
-| `publish.ts` | Optional swarm-channel digests; HTTP-only, never starts the harness (D11) |
+| `ledger.ts` | Claim contract and write-permission enforcement |
+| `prompts.ts` · `excerpts.ts` | Mission assembly, `sourceRef` → seed spans |
+| `verdict.ts` · `manifest.ts` | Verdict rendering, run manifest, events |
+| `runner/` | `direct.ts` (real models), `fake.ts` (offline tests) |
+| `publish.ts` | Optional swarm-channel digests and comment reading |
 | `personas/` | Ideator, Skeptic, Synthesizer persona bodies |
-| `test/` | Offline suite plus one explicit real-token test |
-| `docs/design/` | Work order and the external design review |
-| `docs/eval/` | Probe, re-probe, and WP4 evaluation artifacts |
-| `docs/handoff-wp6.md` | Current handoff |
+| `docs/eval/` | Evaluation reports, ledgers, and verdicts from real runs |
+
+## Design notes
+
+The role split, the ledger-only exchange, authorship anonymisation, and the
+verify-don't-argue Skeptic all come from published findings on multi-agent debate —
+sycophancy between peers, the value of masked memory over raw transcripts, and the fact
+that debate without a correctness signal drifts. Rationale and citations:
+[docs/design/](docs/design/).
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE).

@@ -1,6 +1,6 @@
 # Architecture
 
-Current as of 2026-09-08, after WP0–WP8. ~4,950 lines of TypeScript, 560 offline checks.
+~4,950 lines of TypeScript, 587 offline checks.
 
 ## Module map
 
@@ -51,7 +51,7 @@ Current as of 2026-09-08, after WP0–WP8. ~4,950 lines of TypeScript, 560 offli
  ┌──────────────────────────────────────────────┐
  │ runner/  types.ts (103)  = the seam          │
  │   direct.ts (311)  spawns `pi --mode json`   │  ← default; full cost+tools
- │   fake.ts   (108)  scripted, zero tokens     │  ← every test but WP0/4/5/8
+ │   fake.ts   (108)  scripted, zero tokens     │  ← all offline tests    
  │   harness.ts       NOT BUILT (§13.47)        │  ← would lose cost+tool control
  └──────────────────────────────────────────────┘
 ```
