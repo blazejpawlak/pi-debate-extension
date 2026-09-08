@@ -417,6 +417,22 @@ export class Orchestrator {
     return true;
   }
 
+  /**
+   * §13.53: did the Skeptic ever land a merged turn?
+   *
+   * The Skeptic is the only role that verifies (D5) and the only one that may set `high`
+   * severity, which is what drives the R3 gate. If every Skeptic attempt failed, the run
+   * is a **monologue**: the Ideator's own claims, unchallenged, all capped at `medium`,
+   * so `openHigh` reads 0 and the verdict looks reassuring. Observed live — 4 failed
+   * Skeptic attempts across two rounds still produced `status: complete` with
+   * `Confidence: 0.85`. That is the worst possible presentation of a broken run.
+   */
+  private skepticContributed(): boolean {
+    return this.manifest.turns.some(
+      (t) => t.role === "skeptic" && t.status === "ok" && t.merged,
+    );
+  }
+
   /** §8.6: has this turn already completed and been merged in a previous attempt? */
   private isTurnDone(round: Round, role: Role): boolean {
     return this.manifest.turns.some(
@@ -835,6 +851,28 @@ export class Orchestrator {
   private finalize(body: string | null): RunOutcome {
     this.verdictBody = body ?? this.verdictBody;
 
+    // §13.53: a run where the Skeptic never landed a turn is NOT complete. It is an
+    // unchallenged monologue, and calling it `complete` invites a reader to trust a
+    // verdict that had no adversarial input and no executed verification.
+    if (!this.skepticContributed()) {
+      const attempts = this.manifest.turns.filter((t) => t.role === "skeptic").length;
+      if (this.manifest.status === "running" || this.manifest.status === "complete") {
+        this.manifest.status = "partial";
+      }
+      this.note(
+        attempts === 0
+          ? "NO SKEPTIC TURN RAN: this verdict rests on unchallenged proposals with no " +
+            "independent verification. Treat it as a first draft, not a review."
+          : `ALL ${attempts} SKEPTIC ATTEMPT(S) FAILED: no adversarial review and no ` +
+            "executed verification happened. Every claim is the Ideator's own and cannot " +
+            "exceed medium severity, so a low high-severity count here means nothing. " +
+            "Re-run before relying on this.",
+      );
+      appendEvent(this.paths.events, "skeptic_absent", {
+        attempts,
+        statuses: this.manifest.turns.filter((t) => t.role === "skeptic").map((t) => t.status),
+      });
+    }
     if (this.manifest.status === "running") {
       this.manifest.status = "complete";
     }

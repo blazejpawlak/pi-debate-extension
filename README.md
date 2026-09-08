@@ -197,6 +197,14 @@ records a skip and the run is unaffected.
   channel can miss comments. Fine for opinions; do not make it correctness-critical.
 - **Evaluated on one document, single-shot per arm.** Treat the comparison table as
   indicative.
+- **A run can degrade to a monologue.** If the Skeptic's turns all fail (provider errors,
+  timeouts), the verdict rests on unchallenged proposals. The run is then marked `partial`
+  and the verdict header says **NO ADVERSARIAL REVIEW HAPPENED** — but note that a low
+  high-severity count in that state is meaningless, not reassuring, because only the
+  Skeptic may raise severity. Re-run.
+- **Tool-heavy verification needs generous time caps.** On a 52KB document the Skeptic can
+  spend 300K+ tokens and 20+ commands in a single turn; a tight `turnMs` kills it mid-work
+  and the spend is still charged. Measured guidance in [CONFIG.md](CONFIG.md).
 - **Trust the evidence, not the confidence number.** Several fixed defects all made output
   look *cleaner* than reality — fewer open items, tidier numbers. The ledger's per-claim
   evidence is the trustworthy artifact.
@@ -204,7 +212,7 @@ records a skip and the run is unaffected.
 ## Development
 
 ```bash
-npm test        # 587 checks, no tokens spent
+npm test        # 600 checks, no tokens spent
 ```
 
 Real-token tests are excluded on purpose; run `npx tsx test/runner-direct.test.ts`

@@ -478,5 +478,89 @@ console.log("\n-- §13.50: total wall clock stops rounds and bounds the judge --
   }
 }
 
+// ===========================================================================
+// §13.53: a run where the skeptic never landed a turn is a MONOLOGUE, not a debate.
+// Observed live: 4 failed skeptic attempts still produced `status: complete` with
+// `Confidence: 0.85` and `openHigh: 0` -- the most dangerous presentation possible,
+// because the ideator cannot set high severity so the count looks reassuring.
+console.log("\n-- §13.53: skeptic absence must not read as a clean result --");
+{
+  const { Orchestrator } = await import("../orchestrator.ts");
+  const { FakeRunner, fakeTurnText } = await import("../runner/fake.ts");
+  const { mkdtempSync, rmSync, readFileSync: rf } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { readEvents } = await import("../manifest.ts");
+  const { runPaths } = await import("../paths.ts");
+  const PERSONA = join(import.meta.dirname, "..", "personas");
+  const SEED = "# Plan\n\n## Implementation Phase 5\nQuiesce.\n";
+  const mkCfg = () => JSON.parse(JSON.stringify(DEFAULTS)) as DebateConfig;
+
+  // Every skeptic attempt errors; the ideator succeeds throughout.
+  const ws = mkdtempSync(join(tmpdir(), "t53-"));
+  const runner = new FakeRunner({
+    fixtures: {
+      "1-ideator": { text: fakeTurnText([{ id: "C1", text: "plan is sound", type: "INFERENCE",
+                                           evidence: "read the plan" }]) },
+      "1-skeptic": { status: "failed", stopReason: "error", text: "" },
+      "2-ideator": { text: fakeTurnText([{ id: "C1", text: "refined" }]) },
+      "2-skeptic": { status: "failed", stopReason: "error", text: "" },
+      "verdict-synthesizer": { text: "## 2. Decision\n\nproceed-with-changes\n" },
+    },
+  });
+  const o = new Orchestrator({ workspace: ws, runner, personaDir: PERSONA, cfg: mkCfg() });
+  const out = await o.start("20260908-140000-t53", { seedText: SEED, seedSource: "t", mode: "review" });
+
+  // The core assertion: this must NOT be reported as a complete debate.
+  check("skeptic-less run is NOT `complete`", out.status !== "complete", out.status);
+  eq("it is `partial`", out.status, "partial");
+  check("a skeptic_absent event is recorded",
+    readEvents(runPaths(ws, out.runId).events).some((e) => e.code === "skeptic_absent"));
+  check("a note names the failure in blunt terms",
+    (out.manifest.notes ?? []).some((n) => /SKEPTIC ATTEMPT\(S\) FAILED/.test(n)),
+    JSON.stringify(out.manifest.notes));
+  check("the note warns the severity count is meaningless",
+    (out.manifest.notes ?? []).some((n) => /means nothing/i.test(n)));
+
+  // And the verdict document itself must say so, in the header.
+  const vb = rf(out.verdictPath!, "utf8");
+  check("verdict header warns NO ADVERSARIAL REVIEW",
+    vb.includes("NO ADVERSARIAL REVIEW HAPPENED"), vb.slice(0, 500));
+  check("verdict explains high-severity count is meaningless",
+    /meaningless/i.test(vb));
+  check("verdict tells the reader to re-run", /[Rr]e-run/.test(vb));
+  // Sanity: the claims really are all one author.
+  check("all claims are the ideator's", out.ledger.claims.every((c) => c.author === "A"));
+  rmSync(ws, { recursive: true, force: true });
+}
+{
+  // Control: a healthy run must NOT carry the warning, or it becomes noise.
+  const { Orchestrator } = await import("../orchestrator.ts");
+  const { FakeRunner, fakeTurnText } = await import("../runner/fake.ts");
+  const { mkdtempSync, rmSync, readFileSync: rf } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const PERSONA = join(import.meta.dirname, "..", "personas");
+  const ws = mkdtempSync(join(tmpdir(), "t53b-"));
+  const runner = new FakeRunner({
+    fixtures: {
+      "1-ideator": { text: fakeTurnText([{ id: "C1", text: "sound", type: "INFERENCE" }]) },
+      "1-skeptic": { text: fakeTurnText([{ id: "C1", text: "a real flaw", severity: "low",
+                                          test: "x", evidence: "ran: grep -n x" }]) },
+      "2-ideator": { text: fakeTurnText([{ id: "C1", text: "fine" }]) },
+      "2-skeptic": { text: fakeTurnText([{ id: "C1", text: "fine", severity: "low" }]) },
+      "verdict-synthesizer": { text: "## 2. Decision\n\nproceed\n" },
+    },
+  });
+  const o = new Orchestrator({ workspace: ws, runner, personaDir: PERSONA,
+    cfg: JSON.parse(JSON.stringify(DEFAULTS)) as DebateConfig });
+  const out = await o.start("20260908-140001-t53b", { seedText: "# P\n\n## Phase 5\nq.\n",
+    seedSource: "t", mode: "review" });
+  eq("healthy run is complete", out.status, "complete");
+  check("no monologue warning on a healthy run",
+    !rf(out.verdictPath!, "utf8").includes("NO ADVERSARIAL REVIEW"));
+  rmSync(ws, { recursive: true, force: true });
+}
+
 console.log(`\n${failures.length === 0 ? "PASS" : "FAIL"} — ${pass} checks passed, ${failures.length} failed`);
 if (failures.length) { for (const f of failures) console.log(`  - ${f}`); process.exit(1); }

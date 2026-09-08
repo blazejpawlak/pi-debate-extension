@@ -103,6 +103,19 @@ export function buildVerdict(input: VerdictBuildInput): string {
         ? `   (${unverifiedHigh.length} asserted without evidence: ${unverifiedHigh.map((c) => c.id).join(", ")})`
         : ""),
   ];
+  // §13.53: a claim set with no author-B entries means the Skeptic never contributed,
+  // so nothing was independently verified. Say so in the HEADER, not just the notes:
+  // the numbers above look reassuring precisely because the Ideator cannot set `high`.
+  const authors = new Set(input.ledger.claims.map((c) => c.author));
+  if (input.ledger.claims.length > 0 && !authors.has("B")) {
+    head.push(
+      "",
+      "> **NO ADVERSARIAL REVIEW HAPPENED.** Every claim below is the proposer's own; the",
+      "> Skeptic contributed nothing, so nothing was independently verified and no claim",
+      "> could be raised above medium severity. The high-severity count above is therefore",
+      "> meaningless. Re-run before relying on this verdict.",
+    );
+  }
   if (input.notes && input.notes.length > 0) {
     head.push("");
     for (const note of input.notes) head.push(`> ${note}`);
