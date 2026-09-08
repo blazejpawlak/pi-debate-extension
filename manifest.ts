@@ -72,6 +72,14 @@ export interface Manifest {
   lint?: LintEntry[];
   /** Human-readable reasons the run stopped where it did. */
   notes?: string[];
+  /** Corrected-draft output, if artifact generation was attempted. */
+  artifact?: {
+    status: "written" | "skipped" | "failed";
+    path?: string;
+    runPath?: string;
+    sourceSha256?: string;
+    reason?: string;
+  };
 }
 
 export function newManifest(opts: {

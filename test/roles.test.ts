@@ -241,6 +241,7 @@ console.log("\n-- free models suppress the cost_unreported warning (§13.29) --"
   const ws = mkdtempSync(join(tmpdir(), "roles-k-"));
   write(ws, { tier: "free", rounds: { max: 2, gateSeverity: "high" } });
   const { config } = loadConfig(ws, true);
+  config.artifact.enabled = false;
   // Free models legitimately report tokens with cost 0.
   const zero = (claims: unknown[]) => ({
     text: fakeTurnText(claims), usage: usageWith({ input: 5000, output: 500, costTotal: 0 }),

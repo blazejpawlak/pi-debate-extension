@@ -15,13 +15,14 @@ export type ParsedCommand =
   | { kind: "status" }
   | { kind: "abort" }
   | { kind: "resume"; runId: string | null }
+  | { kind: "artifact"; runId: string | null }
   | { kind: "last" }
   | { kind: "runs" }
   | { kind: "setup" }
   | { kind: "help" }
   | { kind: "error"; message: string };
 
-const SUBCOMMANDS = ["status", "abort", "resume", "last", "runs", "setup", "help"] as const;
+const SUBCOMMANDS = ["status", "abort", "resume", "artifact", "last", "runs", "setup", "help"] as const;
 
 /**
  * Parse `/debate` arguments.
@@ -46,6 +47,7 @@ export function parseCommand(argsRaw: string): ParsedCommand {
       case "setup": return { kind: "setup" };
       case "help": return { kind: "help" };
       case "resume": return { kind: "resume", runId: tokens[1] ?? null };
+      case "artifact": return { kind: "artifact", runId: tokens[1] ?? null };
     }
   }
 
@@ -109,6 +111,7 @@ export const HELP_TEXT = [
   "/debate status              refresh live progress (or show the last run when idle)",
   "/debate abort               kill children, mark aborted",
   "/debate resume <run-id>     continue a crashed run",
+  "/debate artifact [run-id]    create the corrected draft from a completed review",
   "/debate last                print the last verdict summary",
   "/debate runs                list runs with status and cost",
   "",

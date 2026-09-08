@@ -29,7 +29,7 @@ if [ -n "$tsc_bin" ]; then
   "$tsc_bin" --noEmit --skipLibCheck --module esnext --target es2022 \
     --moduleResolution bundler --allowImportingTsExtensions --strict \
     --typeRoots "$type_roots" \
-    config.ts paths.ts command.ts ledger.ts excerpts.ts prompts.ts verdict.ts \
+    config.ts paths.ts command.ts artifact.ts ledger.ts excerpts.ts prompts.ts verdict.ts \
     manifest.ts orchestrator.ts runner/*.ts test/*.ts && echo "clean" || { echo "ERRORS"; fail=1; }
 fi
 exit $fail

@@ -52,7 +52,7 @@ const workspace = mkdtempSync(join(tmpdir(), "debate-setup-"));
 const notices: string[] = [];
 const selects: string[] = [];
 const inputs = ["1.5h", "20m", "1234567"];
-const confirms = [true, false, true]; // trust local, don't customise roles, final review
+const confirms = [true, false, true, true]; // trust local, don't customise, enable draft, final review
 const ctx = {
   cwd: workspace,
   hasUI: true,
@@ -92,6 +92,7 @@ try {
   eq("minimal local config has selected tier", saved.tier, "ibm");
   eq("wizard writes canonical readable time keys", saved.timeouts, { total: "1.5h", turn: "20m" });
   eq("wizard writes free-tier token guardrail", saved.budget, { tokens: 1234567 });
+  eq("wizard saves the selected corrected-draft policy", saved.artifact, { enabled: true });
   check("wizard writes no redundant role override", saved.roles === undefined);
   check("wizard persisted project trust", existsSync(join(process.env.PI_AGENT_DIR!, "trust.json")));
   const trust = JSON.parse(readFileSync(join(process.env.PI_AGENT_DIR!, "trust.json"), "utf8"));

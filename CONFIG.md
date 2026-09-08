@@ -122,6 +122,21 @@ Setting both of the first two warns and uses `roles`.
 
 ---
 
+## Corrected draft artifact
+
+For eligible `review` runs, a separate editor pass produces `<source>.debate-draft.md`.
+It never overwrites the source and begins with a provenance header: source SHA-256, review run,
+claim IDs, and unresolved blockers. The editor uses the Synthesizer model without tools, has its
+own time limit, and is included in normal run cost/provenance. It is skipped for failed reviews,
+reviews without a merged Skeptic turn, or when the normal run budget is already exhausted.
+
+```json
+{ "artifact": { "enabled": true, "turn": "10m" } }
+```
+
+Set `enabled` to `false` to produce only a verdict. Use `/debate artifact <run-id>` to generate
+a draft for a completed review without repeating the reviewer turns.
+
 ## Run-level budget
 
 ```json

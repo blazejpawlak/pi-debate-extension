@@ -48,7 +48,7 @@ export function addUsage(a: Usage, b: Usage): Usage {
   };
 }
 
-export type Round = 1 | 2 | 3 | "verdict";
+export type Round = 1 | 2 | 3 | "verdict" | "artifact";
 export type Role = "ideator" | "skeptic" | "synthesizer";
 
 export interface TurnRequest {

@@ -30,6 +30,9 @@ export interface RunPaths {
   events: string;
   transcript: string;
   lessons: string;
+  artifactDir: string;
+  artifactDraft: string;
+  artifactProvenance: string;
   rootVerdict: string;
 }
 
@@ -39,6 +42,7 @@ export function runPaths(workspace: string, runId: string): RunPaths {
   const runDir = join(runsDir, runId);
   const judgeDir = join(runDir, "judge");
   const turnsDir = join(runDir, "turns");
+  const artifactDir = join(runDir, "artifact");
   return {
     root: workspace,
     debateDir,
@@ -54,19 +58,24 @@ export function runPaths(workspace: string, runId: string): RunPaths {
     events: join(runDir, "events.jsonl"),
     transcript: join(runDir, "transcript.jsonl"),
     lessons: join(debateDir, "lessons.md"),
+    artifactDir,
+    artifactDraft: join(artifactDir, "corrected-draft.md"),
+    artifactProvenance: join(artifactDir, "provenance.json"),
     rootVerdict: join(workspace, "debate_verdict.md"),
   };
 }
 
 export function ensureRunDirs(p: RunPaths): void {
-  for (const d of [p.debateDir, p.runsDir, p.runDir, p.judgeDir, p.turnsDir]) {
+  for (const d of [p.debateDir, p.runsDir, p.runDir, p.judgeDir, p.turnsDir, p.artifactDir]) {
     mkdirSync(d, { recursive: true });
   }
 }
 
 /** Turn artifact name, e.g. `r1-ideator.md` / `verdict.md` (§3). */
-export function turnFileName(round: 1 | 2 | 3 | "verdict", role: string): string {
-  return round === "verdict" ? "verdict.md" : `r${round}-${role}.md`;
+export function turnFileName(round: 1 | 2 | 3 | "verdict" | "artifact", role: string): string {
+  if (round === "verdict") return "verdict.md";
+  if (round === "artifact") return "artifact.md";
+  return `r${round}-${role}.md`;
 }
 
 export interface RunSummary {

@@ -50,6 +50,9 @@ const SEED = [
 
 function cfg(over: Partial<DebateConfig> = {}): DebateConfig {
   const base = JSON.parse(JSON.stringify(DEFAULTS)) as DebateConfig;
+  // Existing protocol scenarios test debate mechanics. Artifact generation has its own
+  // scenario below, so it cannot add an unrelated eighth turn to every legacy fixture.
+  base.artifact.enabled = false;
   return { ...base, ...over } as DebateConfig;
 }
 
@@ -576,6 +579,42 @@ console.log("\n-- extra: missions never carry previous prose (§8.2) --");
     missions.slice(2).some((m) => m.includes("claim ledger") || m.includes('"claims"')));
   check("no mission begins with @ or -",
     missions.every((m) => !m.startsWith("@") && !m.trimStart().startsWith("-")));
+  cleanup();
+}
+
+// ===========================================================================
+console.log("\n-- artifact: corrected draft is a separate, traceable human-review artifact --");
+{
+  const w = fresh();
+  const source = join(w, "migration-plan.md");
+  writeFileSync(source, SEED);
+  const revised = `${SEED}\n\n> **DEBATE BLOCKER (B1):** Confirm the authoritative plan path.\n<!-- debate: B1 -->\n`;
+  const runner = new FakeRunner({ fixtures: {
+    "1-ideator": { text: fakeTurnText([{ id: "C1", text: "plan structure is sound", severity: "low" }]) },
+    "1-skeptic": { text: fakeTurnText([{ id: "C1", text: "authoritative path is ambiguous", severity: "high", status: "open", evidence: "read source path" }]) },
+    "2-ideator": { text: fakeTurnText([{ id: "C1", text: "add a path preflight", severity: "low" }]) },
+    "2-skeptic": { text: fakeTurnText([{ id: "C1", text: "still unresolved", severity: "high" }]) },
+    "3-ideator": { text: fakeTurnText([{ id: "C1", text: "keep blocker", severity: "low" }]) },
+    "3-skeptic": { text: fakeTurnText([{ id: "C1", text: "still unresolved", severity: "high" }]) },
+    "verdict-synthesizer": { text: "## 2. Decision\n\nproceed-with-changes\n" },
+    "artifact-synthesizer": { text: revised },
+  }});
+  const config = cfg({ artifact: { enabled: true, turnMs: 60_000 } });
+  const o = new Orchestrator({ workspace: w, cfg: config, runner, personaDir: PERSONA_DIR });
+  const out = await o.start("20260909-100000-artifact", { seedText: SEED, seedSource: source, mode: "review" });
+  const p = runPaths(w, out.runId);
+  eq("artifact is the final bounded model turn", runner.sequence().at(-1), "artifact-synthesizer");
+  check("source is untouched", readFileSync(source, "utf8") === SEED);
+  eq("sibling draft path", out.artifactPath, join(w, "migration-plan.debate-draft.md"));
+  check("workspace draft exists", !!out.artifactPath && existsSync(out.artifactPath));
+  check("per-run artifact copy exists", existsSync(p.artifactDraft));
+  check("provenance exists", existsSync(p.artifactProvenance));
+  const draft = readFileSync(out.artifactPath!, "utf8");
+  check("draft has an explicit human-review header", draft.includes("HUMAN REVIEW REQUIRED"));
+  check("draft identifies unresolved claim", /Still unresolved: [A-Z][0-9]/.test(draft), draft.slice(0, 500));
+  check("draft includes model's claim annotation", draft.includes("<!-- debate: B1 -->"));
+  check("manifest records a written artifact", out.manifest.artifact?.status === "written");
+  check("verdict links the draft", readFileSync(out.verdictPath!, "utf8").includes("## 8. Corrected draft"));
   cleanup();
 }
 

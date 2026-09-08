@@ -378,8 +378,9 @@ function buildPatch(
   tier: string,
   models: Record<Role, string>,
   budget: JsonObject,
+  artifactEnabled: boolean,
 ): JsonObject {
-  const patch: JsonObject = { tier, ...budget };
+  const patch: JsonObject = { tier, ...budget, artifact: { enabled: artifactEnabled } };
   const tierModels = TIERS[tier]!.models;
   // Only write role overrides where the user departed from the selected recommendation.
   const roles: JsonObject = {};
@@ -463,13 +464,19 @@ export async function runSetupWizard(
   if (!budget) return null;
   const topic = await chooseTopic(ctx);
   if (!topic) return null;
+  const artifactEnabled = await ctx.ui.confirm(
+    "Create a corrected draft?",
+    "After the review, run one bounded editor pass to create a separate human-review-only draft. " +
+    "It never replaces the source and adds one model turn to cost/time.",
+  );
 
-  const patch = buildPatch(tier, models, budget);
+  const patch = buildPatch(tier, models, budget, artifactEnabled);
   const target = scope === "local" ? join(ctx.cwd, ".pi", "debate.json") : join(agentDir(), "settings.json");
   const summary = [
     `Save: ${target}${scope === "local" ? " (overwrite)" : " (replace settings.debate only)"}`,
     `Roster: ${ROLES.map((role) => `${role}=${models[role]}`).join("; ")}`,
     `Guardrails: ${JSON.stringify(budget)}`,
+    `Corrected draft: ${artifactEnabled ? "enabled (human review required)" : "disabled"}`,
     `Topic: ${topic.seedSource} (${topic.seedText.length.toLocaleString()} chars)`,
   ];
   if (!await ctx.ui.confirm("Start this debate?", `${summary.join("\n")}\n\nThe config is only written if you confirm.`)) {

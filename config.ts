@@ -237,6 +237,8 @@ export interface DebateConfig {
   synthesizer: { inlineFullSeedUnderChars: number };
   children: { contextFiles: boolean; extraArgs: string[] };
   lessons: { enabled: boolean; maxLines: number };
+  /** Produce a human-review-only corrected document draft after an eligible review run. */
+  artifact: { enabled: boolean; turnMs: number };
   inject: "nextTurn" | "followUp" | "none";
   publish: { enabled: boolean; channel: string };
   /**
@@ -332,6 +334,8 @@ export const DEFAULTS: DebateConfig = {
   synthesizer: { inlineFullSeedUnderChars: 40_000 },
   children: { contextFiles: false, extraArgs: [] },
   lessons: { enabled: true, maxLines: 200 },
+  // A debate is a means to an improved artifact. The draft is never applied to the source.
+  artifact: { enabled: true, turnMs: 600_000 },
   inject: "nextTurn",
   publish: { enabled: false, channel: "debate" },
   // Off by default: reading a shared channel changes what the models see, so it must be
@@ -603,6 +607,16 @@ function normalizeDurations(c: DebateConfig): void {
   }
   if (typeof t.verdictGraceMs !== "number" || t.verdictGraceMs < 0) {
     throw new DurationError(`timeouts.verdictGrace: must be 0 or greater`);
+  }
+  const artifact = c.artifact as unknown as Record<string, unknown>;
+  if (artifact.turn !== undefined) {
+    artifact.turnMs = parseDuration(artifact.turn, "artifact.turn");
+    delete artifact.turn;
+  } else if (artifact.turnMs !== undefined) {
+    artifact.turnMs = parseDuration(artifact.turnMs, "artifact.turnMs");
+  }
+  if (typeof artifact.turnMs !== "number" || artifact.turnMs <= 0) {
+    throw new DurationError("artifact.turn: must be greater than 0");
   }
   for (const role of ROLES) {
     const b = c.roles?.[role]?.budget as unknown as Record<string, unknown> | undefined;

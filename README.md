@@ -106,6 +106,7 @@ time caps, swarm integration.
 /debate status                refresh live progress; shows last run when idle
 /debate abort                 kill children, mark aborted
 /debate resume <run-id>       continue a crashed run
+/debate artifact [run-id]     create/retrieve corrected draft from a completed review
 /debate last                  print the last verdict
 /debate runs                  list runs with status and cost
 ```
@@ -137,7 +138,12 @@ time cap: 2700s total, 420s per turn, +420s verdict grace
 
 ## Acting on a debate result
 
-A debate is a **review artifact**, not an automatic change or execution approval.
+A debate is a **review mechanism**, not the final deliverable or an execution approval.
+For an eligible document review, debate automatically adds a separate **corrected draft**:
+`<source>.debate-draft.md`. It is explicitly marked **HUMAN REVIEW REQUIRED**, never overwrites
+the source, and links the source hash, run ID, claim IDs, and remaining blockers. The extra,
+bounded editor turn is included in run cost/provenance. Use `/debate artifact <run-id>` to
+produce a draft for a review completed before this feature was installed.
 
 1. Start with `Unresolved high-severity` and `Kill criteria`. Treat those as blockers.
 2. Use the cited claim IDs (for example `B1`, `B4`) and their evidence to update the source
@@ -155,8 +161,10 @@ state-changing migration step.
 
 ```
 <workspace>/debate_verdict.md          latest verdict, copied to the root
+<source>.debate-draft.md                corrected draft; never replaces source
 <workspace>/.debate/runs/<run-id>/
   manifest.json   models, per-turn tokens/cost/duration, status, config snapshot
+  artifact/       corrected-draft.md plus provenance.json
   ledger.json     every claim with evidence, severity, status history
   events.jsonl    append-only audit trail
   turns/          each model's raw output
@@ -244,7 +252,7 @@ records a skip and the run is unaffected.
 ## Development
 
 ```bash
-npm test        # 634 checks, no tokens spent (hermetic: uses a throwaway PI_AGENT_DIR)
+npm test        # 654 checks, no tokens spent (hermetic: uses a throwaway PI_AGENT_DIR)
 ```
 
 Real-token tests are excluded on purpose; run `npx tsx test/runner-direct.test.ts`

@@ -25,6 +25,7 @@ import {
 } from "./manifest.ts";
 import { ensureRunDirs, runPaths, turnFileName, listRuns, type RunPaths } from "./paths.ts";
 import { buildVerdict, writeVerdict, appendLessons, buildSummary } from "./verdict.ts";
+import { buildArtifactMission, correctedDraftPath, draftHeader, provenance, validateDraft } from "./artifact.ts";
 import { publishDigest, readComments, type PublishDeps, type ExternalComment } from "./publish.ts";
 import type { Role, Round, TurnRequest, TurnResult, TurnRunner } from "./runner/types.ts";
 
@@ -58,6 +59,8 @@ export interface RunOutcome {
   runId: string;
   status: RunStatus;
   verdictPath: string | null;
+  /** Human-review-only corrected draft, never the source file. */
+  artifactPath: string | null;
   summary: string;
   openHighSeverity: number;
   costUsd: number;
@@ -262,6 +265,43 @@ export class Orchestrator {
     writeManifest(this.paths.manifest, this.manifest);
 
     return this.drive(this.manifest.mode as Mode, this.cfg.rounds.max);
+  }
+
+  /** Generate a corrected draft for an existing completed review without re-running debate. */
+  async artifact(runId: string): Promise<{ artifactPath: string | null; reason?: string }> {
+    this.paths = runPaths(this.workspace, runId);
+    if (!existsSync(this.paths.manifest)) throw new Error(`no such run: ${runId}`);
+    this.manifest = readManifest(this.paths.manifest);
+    this.seedText = existsSync(this.paths.seed) ? readFileSync(this.paths.seed, "utf8") : "";
+    this.ledger = existsSync(this.paths.ledger)
+      ? (JSON.parse(readFileSync(this.paths.ledger, "utf8")) as Ledger)
+      : emptyLedger(runId, this.manifest.mode);
+    this.startedAtMs = this.now() - this.manifest.totals.durationMs;
+    ensureRunDirs(this.paths);
+    if (this.manifest.artifact?.status === "written" && this.manifest.artifact.path) {
+      return { artifactPath: this.manifest.artifact.path, reason: "already generated" };
+    }
+    const verdict = existsSync(this.paths.rootVerdict)
+      ? readFileSync(this.paths.rootVerdict, "utf8")
+      : "";
+    if (!verdict) throw new Error("no verdict found for this run; run or resume the debate first");
+    const artifactPath = await this.generateArtifact(verdict);
+    this.saveManifest();
+    if (artifactPath) {
+      const note = [
+        "", "## Corrected draft", "",
+        `A human-review-only corrected draft was generated after this verdict: \`${artifactPath}\`.`,
+        "It never replaces the source. Review unresolved blockers before use.", "",
+      ].join("\n");
+      // Old verdicts have no raw judge body to rebuild from; append a clearly marked
+      // addendum rather than pretending their original cost/provenance was regenerated.
+      if (!verdict.includes("## Corrected draft")) {
+        writeFileSync(this.paths.rootVerdict, verdict.trimEnd() + note);
+        const turnVerdict = join(this.paths.turnsDir, "verdict.md");
+        if (existsSync(turnVerdict)) writeFileSync(turnVerdict, readFileSync(turnVerdict, "utf8").trimEnd() + note);
+      }
+    }
+    return { artifactPath, reason: this.manifest.artifact?.reason };
   }
 
   // ------------------------------------------------------------------
@@ -515,13 +555,14 @@ export class Orchestrator {
     role: Role,
     repairNote?: string,
     truncated?: boolean,
+    override?: { mission: string; attachPath: string | null; timeoutMs: number },
   ): Promise<TurnResult> {
     const t0 = this.now();
-    const isJudge = role === "synthesizer";
+    const isJudge = round === "verdict";
     const rr = this.role(role);
 
-    const mission = buildMission({
-      role, mode: this.manifest.mode as Mode, round, cfg: this.cfg,
+    const mission = override?.mission ?? buildMission({
+      role, mode: this.manifest.mode as Mode, round: round as 1 | 2 | 3 | "verdict", cfg: this.cfg,
       ledger: round === 1 ? null : this.ledger,
       lessons: role === "skeptic" ? this.readLessons() : null,
       repairNote: repairNote ?? null,
@@ -544,13 +585,13 @@ export class Orchestrator {
       thinking: rr.thinking,
       // §13.50: the judge is additionally capped by whatever grace remains, so it can
       // never outrun totalMs + verdictGraceMs even if its own turnMs is larger.
-      timeoutMs: role === "synthesizer" && this.verdictTurnCapMs !== null
+      timeoutMs: override?.timeoutMs ?? (isJudge && this.verdictTurnCapMs !== null
         ? Math.min(rr.turnMs, this.verdictTurnCapMs)
-        : rr.turnMs,
+        : rr.turnMs),
       signal: this.combinedSignal(),
       provider: rr.provider,
       model: rr.model,
-      attachPath: isJudge ? this.paths.judgeExcerpts : this.paths.seed,
+      attachPath: override?.attachPath ?? (isJudge ? this.paths.judgeExcerpts : this.paths.seed),
       perTurnUsd: rr.perTurnUsd,
       perTurnTokens: rr.perTurnTokens,
       extraArgs: this.cfg.children.extraArgs,
@@ -848,7 +889,79 @@ export class Orchestrator {
     return null;
   }
 
-  private finalize(body: string | null): RunOutcome {
+  /**
+   * Generate a sibling corrected draft after an eligible review. This is deliberately
+   * separate from the verdict: it is an editor pass, not a judge decision. It never
+   * writes the source and skips rather than gambling when the review itself is weak.
+   */
+  private async generateArtifact(verdict: string): Promise<string | null> {
+    const skip = (reason: string): null => {
+      this.manifest.artifact = { status: "skipped", reason };
+      appendEvent(this.paths.events, "artifact_skipped", { reason });
+      return null;
+    };
+    if (!this.cfg.artifact.enabled) return skip("disabled by config");
+    if (this.manifest.mode !== "review") return skip("only review-mode documents produce drafts");
+    if (this.manifest.status === "failed" || this.manifest.status === "aborted") return skip("run did not complete");
+    if (!this.skepticContributed()) return skip("no merged Skeptic turn; review is not independent");
+    if (this.ledger.claims.length === 0) return skip("empty claim ledger");
+    const runStop = this.budgetStop();
+    if (runStop) return skip(`run budget exhausted: ${runStop}`);
+    const roleStop = this.roleBudgetStop("synthesizer");
+    if (roleStop) return skip(roleStop);
+
+    const input = {
+      runId: this.manifest.runId,
+      sourcePath: this.manifest.seedSource,
+      sourceText: this.seedText,
+      verdict,
+      ledger: this.ledger,
+      generatedAt: new Date().toISOString(),
+    };
+    const mission = buildArtifactMission(input);
+    const rr = this.role("synthesizer");
+    const result = await this.invoke("artifact", "synthesizer", undefined, undefined, {
+      mission,
+      attachPath: this.paths.seed,
+      timeoutMs: Math.min(rr.turnMs, this.cfg.artifact.turnMs),
+    });
+    const rec = this.recordTurn("artifact", "synthesizer", result);
+    writeFileSync(join(this.paths.turnsDir, turnFileName("artifact", "synthesizer")), result.text);
+    if (result.status !== "ok") {
+      this.manifest.artifact = { status: "failed", reason: `editor turn ${result.status}` };
+      appendEvent(this.paths.events, "artifact_failed", { status: result.status });
+      return null;
+    }
+    const problem = validateDraft(result.text, this.seedText);
+    if (problem) {
+      this.manifest.artifact = { status: "failed", reason: problem };
+      appendEvent(this.paths.events, "artifact_failed", { reason: problem });
+      return null;
+    }
+    rec.merged = true; // artifact is complete and has passed validation; not a ledger merge.
+    const p = provenance(input);
+    const root = correctedDraftPath(this.manifest.seedSource, this.workspace);
+    // Belt-and-suspenders: even a bizarre seedSource must never be overwritten.
+    if (root === this.manifest.seedSource || root === this.paths.seed) {
+      this.manifest.artifact = { status: "failed", reason: "refused source overwrite" };
+      appendEvent(this.paths.events, "artifact_failed", { reason: "refused source overwrite" });
+      return null;
+    }
+    const content = draftHeader(p) + result.text.trim() + "\n";
+    writeFileSync(this.paths.artifactDraft, content);
+    writeFileSync(this.paths.artifactProvenance, JSON.stringify(p, null, 2) + "\n");
+    writeFileSync(root, content);
+    this.manifest.artifact = {
+      status: "written", path: root, runPath: this.paths.artifactDraft, sourceSha256: p.sourceSha256,
+    };
+    appendEvent(this.paths.events, "artifact_written", {
+      path: root, runPath: this.paths.artifactDraft, sourceSha256: p.sourceSha256,
+      unresolved: p.unresolvedClaimIds,
+    });
+    return root;
+  }
+
+  private async finalize(body: string | null): Promise<RunOutcome> {
     this.verdictBody = body ?? this.verdictBody;
 
     // §13.53: a run where the Skeptic never landed a turn is NOT complete. It is an
@@ -883,18 +996,29 @@ export class Orchestrator {
     this.manifest.totals.durationMs = this.now() - this.startedAtMs;
 
     let verdictPath: string | null = null;
-    // §5.1: a failed run writes no verdict at all.
+    let artifactPath: string | null = null;
+    // §5.1: a failed run writes no verdict or corrected draft.
     if (this.manifest.status !== "failed") {
-      const content = buildVerdict({
-        runId: this.manifest.runId,
-        mode: this.manifest.mode,
-        status: this.manifest.status,
-        rounds: this.manifest.rounds,
-        ledger: this.ledger,
-        body: this.verdictBody,
-        manifest: this.manifest,
-        notes: this.manifest.notes,
+      // The editor needs the actual verdict, but the final verdict is built *after* the
+      // editor so its provenance/cost includes the extra bounded turn.
+      const provisional = buildVerdict({
+        runId: this.manifest.runId, mode: this.manifest.mode, status: this.manifest.status,
+        rounds: this.manifest.rounds, ledger: this.ledger, body: this.verdictBody,
+        manifest: this.manifest, notes: this.manifest.notes,
       });
+      artifactPath = await this.generateArtifact(provisional);
+      let content = buildVerdict({
+        runId: this.manifest.runId, mode: this.manifest.mode, status: this.manifest.status,
+        rounds: this.manifest.rounds, ledger: this.ledger, body: this.verdictBody,
+        manifest: this.manifest, notes: this.manifest.notes,
+      });
+      if (artifactPath) {
+        content += [
+          "", "## 8. Corrected draft", "",
+          "A human-review-only corrected draft was generated: `" + artifactPath + "`",
+          "It never replaces the source. Review unresolved blockers before use.", "",
+        ].join("\n");
+      }
       const turnPath = join(this.paths.turnsDir, "verdict.md");
       writeVerdict(turnPath, this.paths.rootVerdict, content);
       verdictPath = this.paths.rootVerdict;
@@ -907,6 +1031,8 @@ export class Orchestrator {
       }
     }
 
+    // Artifact generation is a real bounded model turn and belongs to the run's end time.
+    this.manifest.endedAt = new Date().toISOString();
     this.commitLedger();
     this.saveManifest();
     appendEvent(this.paths.events, "run_end", {
@@ -918,7 +1044,7 @@ export class Orchestrator {
       costTrusted: this.manifest.costTrusted,
     });
 
-    const summary = buildSummary({
+    let summary = buildSummary({
       runId: this.manifest.runId,
       mode: this.manifest.mode,
       status: this.manifest.status,
@@ -929,12 +1055,15 @@ export class Orchestrator {
       body: this.verdictBody,
       costTrusted: this.manifest.costTrusted,
     });
+    if (artifactPath) summary += `\nCorrected draft (human review required): ${artifactPath}`;
+    else if (this.manifest.artifact?.reason) summary += `\nCorrected draft: not produced (${this.manifest.artifact.reason})`;
 
     this.emitProgress("done", null, null);
     return {
       runId: this.manifest.runId,
       status: this.manifest.status,
       verdictPath,
+      artifactPath,
       summary,
       openHighSeverity: openAtOrAbove(this.ledger, "high").length,
       costUsd: this.manifest.totals.costUsd,

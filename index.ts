@@ -243,6 +243,7 @@ export default function (pi: ExtensionAPI) {
         { value: "status", label: "status", description: "Round, elapsed, tokens, cost, open high-severity" },
         { value: "abort", label: "abort", description: "Kill children and mark the run aborted" },
         { value: "resume", label: "resume", description: "Continue a crashed run: resume <run-id>" },
+        { value: "artifact", label: "artifact", description: "Create corrected draft: artifact [run-id]" },
         { value: "last", label: "last", description: "Print the last verdict summary" },
         { value: "runs", label: "runs", description: "List runs with status and cost" },
         { value: "setup", label: "setup", description: "Guided config + topic wizard (models, budgets, confirmation)" },
@@ -369,6 +370,52 @@ export default function (pi: ExtensionAPI) {
             say(ctx as never, text.split("\n").slice(0, 40).join("\n"));
           } else {
             say(ctx as never, `debate: last run ${done.runId} (${done.status}); no verdict file`);
+          }
+          return;
+        }
+
+        case "artifact": {
+          if (!ctx.hasUI) {
+            say(ctx as never, "debate: artifact generation needs interactive confirmation because it invokes a model.", "warn");
+            return;
+          }
+          if (active) {
+            say(ctx as never, `debate: already running (${active.runId})`, "error");
+            return;
+          }
+          const target = cmd.runId ?? listRuns(ctx.cwd).find((r) => r.status !== "unreadable")?.runId;
+          if (!target) { say(ctx as never, "debate: no completed review to turn into a draft", "error"); return; }
+          const p = runPaths(ctx.cwd, target);
+          if (!existsSync(p.manifest)) { say(ctx as never, `debate: no such run: ${target}`, "error"); return; }
+          if (!await ctx.ui.confirm(
+            "Create corrected draft?",
+            `This runs one bounded editor model turn for review ${target}. It writes a separate draft and never changes the source file.`,
+          )) return;
+          const runner = makeRunner(config, (event) => {
+            if (active?.runId !== target) return;
+            active.stream = event;
+            renderLive(ctx);
+          });
+          const orch = new Orchestrator({
+            workspace: ctx.cwd, cfg: config, runner, personaDir: PERSONA_DIR,
+            onProgress: (pr) => renderProgress(ctx, pr),
+          });
+          active = {
+            runId: target, orch, runner, progress: null, stream: null,
+            startedAtMs: Date.now(), lastRenderMs: 0, ticker: null,
+          };
+          startLiveTicker(ctx);
+          try {
+            const out = await orch.artifact(target);
+            say(ctx as never, out.artifactPath
+              ? `debate: corrected draft (human review required): ${out.artifactPath}`
+              : `debate: corrected draft was not produced${out.reason ? ` (${out.reason})` : ""}`, out.artifactPath ? "info" : "warn");
+          } catch (e) {
+            say(ctx as never, `debate: artifact generation failed: ${(e as Error).message}`, "error");
+          } finally {
+            await runner.killAll();
+            clearProgress(ctx);
+            active = null;
           }
           return;
         }
@@ -509,7 +556,9 @@ export default function (pi: ExtensionAPI) {
       // §9.2 dryRun: resolve the plan and estimate cost WITHOUT invoking any model.
       if (params.dryRun) {
         const rounds = params.rounds ?? config.rounds.max;
-        const turns = mode === "review" ? 2 * rounds + 1 : 2 * rounds;
+        const debateTurns = mode === "review" ? 2 * rounds + 1 : 2 * rounds;
+        const artifactTurns = mode === "review" && config.artifact.enabled ? 1 : 0;
+        const turns = debateTurns + artifactTurns;
         // Resolve per role: `config.models.*` is nulled out when a tier is active
         // (applyTier moves the model into roles.<r>.model), so printing it showed
         // "null" for every tiered roster.
@@ -534,7 +583,7 @@ export default function (pi: ExtensionAPI) {
           `        skeptic=${roles.skeptic.ref}`,
           `        synthesizer=${roles.synthesizer.ref}`,
           `max model turns: ${turns} (+ up to ${config.repairs.max} repairs)`,
-          costLine,
+          costLine + (artifactTurns ? " + one corrected-draft editor turn" : ""),
           `per-turn ceiling: $${config.budget.perTurnUsd} / ${config.budget.perTurnTokens} tokens`,
           `time cap: ${config.timeouts.totalMs / 1000}s total, ` +
             `${config.timeouts.turnMs / 1000}s per turn, ` +
@@ -543,7 +592,7 @@ export default function (pi: ExtensionAPI) {
         return {
           content: [{ type: "text", text: plan }],
           details: {
-            status: "dryRun", mode, turns, estLow, estHigh,
+            status: "dryRun", mode, turns, artifactTurns, estLow, estHigh,
             seedChars: seedText.length, billsNothing: allFree,
           },
         };
@@ -558,6 +607,7 @@ export default function (pi: ExtensionAPI) {
           runId: out.runId,
           status: out.status,
           verdictPath: out.verdictPath,
+          artifactPath: out.artifactPath,
           summary: out.summary,
           openHighSeverity: out.openHighSeverity,
           costUsd: out.costUsd,
@@ -568,10 +618,12 @@ export default function (pi: ExtensionAPI) {
 
   // §9.4: kill children and mark the active run aborted.
   pi.on("session_shutdown", async () => {
-    if (!active) return;
-    active.orch.abort();
-    await active.runner.killAll();
-    active = null;
+    const running = active;
+    if (!running) return;
+    running.orch.abort();
+    await running.runner.killAll();
+    if (running.ticker) clearInterval(running.ticker);
+    if (active === running) active = null;
   });
 
   // §9.4: sweep runs left `running` by a crashed session; mark them aborted (resumable).

@@ -58,6 +58,9 @@ eq("last", parseCommand("last").kind, "last");
 eq("resume with id", parseCommand("resume 20260906-181200-3f9a"),
    { kind: "resume", runId: "20260906-181200-3f9a" });
 eq("resume without id", parseCommand("resume"), { kind: "resume", runId: null });
+eq("artifact with id", parseCommand("artifact 20260908-175203-98b6"),
+   { kind: "artifact", runId: "20260908-175203-98b6" });
+eq("artifact without id", parseCommand("artifact"), { kind: "artifact", runId: null });
 eq("inline text", parseCommand("should we migrate to bun"),
    { kind: "run", seed: "should we migrate to bun", seedFile: null, mode: null });
 eq("@file", parseCommand("@plan.md"),
@@ -207,6 +210,8 @@ try {
   const p = runPaths(ws, rid);
   check("run dir under .debate/runs", p.runDir === join(ws, ".debate", "runs", rid));
   check("root verdict at workspace root", p.rootVerdict === join(ws, "debate_verdict.md"));
+  check("per-run corrected draft has a dedicated path", p.artifactDraft.endsWith("/artifact/corrected-draft.md"));
+  check("per-run artifact provenance has a dedicated path", p.artifactProvenance.endsWith("/artifact/provenance.json"));
   check("lessons is per-workspace not per-run", p.lessons === join(ws, ".debate", "lessons.md"));
   eq("turn file r1", turnFileName(1, "ideator"), "r1-ideator.md");
   eq("turn file verdict", turnFileName("verdict", "synthesizer"), "verdict.md");
