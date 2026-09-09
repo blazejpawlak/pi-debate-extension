@@ -8,8 +8,9 @@
  * Full UI polish (live widget, injection modes, stale-run sweep) is WP6.
  */
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { Box, Text } from "@earendil-works/pi-tui";
+import type {
+  ExtensionAPI, ExtensionCommandContext, ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -47,20 +48,22 @@ function fmtDuration(ms: number): string {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
+interface ActiveRun {
+  runId: string;
+  orch: Orchestrator;
+  runner: TurnRunner;
+  progress: Progress | null;
+  /** Ephemeral child-stream data; never used for accounting or persisted. */
+  stream: DirectStreamEvent | null;
+  startedAtMs: number;
+  /** Limit stream-driven redraws; pi may emit many token updates per second. */
+  lastRenderMs: number;
+  ticker: ReturnType<typeof setInterval> | null;
+}
+
 export default function (pi: ExtensionAPI) {
   /** §9.2: one run at a time. */
-  let active: {
-    runId: string;
-    orch: Orchestrator;
-    runner: TurnRunner;
-    progress: Progress | null;
-    /** Ephemeral child-stream data; never used for accounting or persisted. */
-    stream: DirectStreamEvent | null;
-    startedAtMs: number;
-    /** Limit stream-driven redraws; pi may emit many token updates per second. */
-    lastRenderMs: number;
-    ticker: ReturnType<typeof setInterval> | null;
-  } | null = null;
+  let active: ActiveRun | null = null;
 
   const say = (
     ctx: { hasUI: boolean; ui: { notify: (m: string, l: "info" | "warn" | "error") => void } },
@@ -134,11 +137,20 @@ export default function (pi: ExtensionAPI) {
     active.ticker = setInterval(() => renderLive(ctx, true), 1_000);
   }
 
-  function clearProgress(ctx: ExtensionCommandContext): void {
-    if (active?.ticker) clearInterval(active.ticker);
+  function clearProgress(
+    ctx: ExtensionContext,
+    running: ActiveRun | null = active,
+  ): void {
+    if (running?.ticker) {
+      clearInterval(running.ticker);
+      running.ticker = null;
+    }
+    // Detach first: a heartbeat callback already queued on the event loop must see no
+    // active run and return instead of repainting immediately after this clear.
+    if (active === running) active = null;
     if (!ctx.hasUI) return;
-    ctx.ui.setStatus("debate", undefined as unknown as string);
-    ctx.ui.setWidget("debate", undefined as unknown as string[]);
+    ctx.ui.setStatus("debate", undefined);
+    ctx.ui.setWidget("debate", undefined);
   }
 
   /** Shared by the command and the tool. */
@@ -170,53 +182,12 @@ export default function (pi: ExtensionAPI) {
     } finally {
       await runner.killAll();
       clearProgress(ctx);
-      active = null;
     }
   }
 
-  /**
-   * §9.3 entry renderer for the persisted verdict entry. TUI-only — custom entries do
-   * not participate in LLM context, so this is presentation and never affects what a
-   * model sees. Context injection is `sendMessage` below, deliberately separate.
-   *
-   * Collapsed: one line with status, cost and open-high count. Expanded: the summary.
-   */
-  pi.registerEntryRenderer("debate-verdict", (entry, { expanded }, theme) => {
-    const d = (entry.data ?? {}) as {
-      runId?: string; path?: string | null; summary?: string;
-      costUsd?: number; status?: string; openHigh?: number; costTrusted?: boolean;
-    };
-    const box = new Box(1, 0, (t) => theme.bg("customMessageBg", t));
-    const cost = typeof d.costUsd === "number"
-      ? `$${d.costUsd.toFixed(2)}${d.costTrusted === false ? "?" : ""}`
-      : "—";
-    // A non-complete run is the interesting case, so make status legible at a glance.
-    const statusText = d.status === "complete"
-      ? theme.fg("success", d.status)
-      : theme.fg("warning", String(d.status ?? "unknown"));
-    const head = `${theme.bold("debate verdict")} ${statusText} · ${cost}`
-      + (d.openHigh ? ` · ${theme.fg("warning", `${d.openHigh} open high`)}` : "");
-    box.addChild(new Text(head));
-    if (expanded) {
-      if (d.summary) box.addChild(new Text(theme.fg("dim", d.summary)));
-      if (d.path) box.addChild(new Text(theme.fg("dim", d.path)));
-    }
-    return box;
-  });
-
-  /** §9.3: put the verdict in front of the user and, per config, into the next prompt. */
+  /** Put the verdict in front of the user and, per config, into the next prompt. */
   function deliver(ctx: ExtensionCommandContext, out: RunOutcome, cfg: DebateConfig): void {
     say(ctx as never, out.summary, out.status === "complete" ? "info" : "warn");
-
-    pi.appendEntry("debate-verdict", {
-      runId: out.runId,
-      path: out.verdictPath,
-      summary: out.summary,
-      costUsd: out.costUsd,
-      status: out.status,
-      openHigh: out.openHighSeverity,
-      costTrusted: out.manifest.costTrusted !== false,
-    });
 
     if (cfg.inject !== "none" && out.verdictPath) {
       // The summary alone is not the verdict. Inject the actual verdict document so the
@@ -330,7 +301,9 @@ export default function (pi: ExtensionAPI) {
             return;
           }
           // Status should still be useful after a run ends. Avoid dumping the entire
-          // verdict (that is `/debate last`); give the one-line run state instead.
+          // verdict (that is `/debate last`); give the one-line run state instead. It is
+          // a query, not a persistent mode, so remove any stale live UI first.
+          clearProgress(ctx, null);
           const last = listRuns(ctx.cwd).find((r) => r.status !== "unreadable");
           if (!last) { say(ctx as never, "debate: no runs yet"); return; }
           const cost = typeof last.costUsd === "number" ? `$${last.costUsd.toFixed(4)}` : "$-";
@@ -347,20 +320,6 @@ export default function (pi: ExtensionAPI) {
               diagnosis = `Corrected draft: not produced (${manifest.artifact.reason})`;
             }
           } catch { /* listRuns already reported an otherwise readable run */ }
-          // A notification can disappear before the user reads it. Status is an explicit
-          // request, so retain the concise idle state in the same visible widget used by
-          // active runs.
-          if (ctx.hasUI) {
-            ctx.ui.setStatus("debate", `IDLE · ${idle}`);
-            ctx.ui.setWidget("debate", [
-              "◇ Debate idle",
-              `  ${idle}`,
-              last.status === "partial"
-                ? "  Review is incomplete; inspect /debate last before relying on it."
-                : "  /debate last for the verdict · /debate runs for history",
-              ...(diagnosis ? [`  ${diagnosis}`] : []),
-            ]);
-          }
           say(ctx as never,
             `debate: no run is active · ${idle}.` +
             (diagnosis ? ` ${diagnosis}` : " Use /debate last for its verdict."));
@@ -442,7 +401,6 @@ export default function (pi: ExtensionAPI) {
           } finally {
             await runner.killAll();
             clearProgress(ctx);
-            active = null;
           }
           return;
         }
@@ -483,7 +441,6 @@ export default function (pi: ExtensionAPI) {
           } finally {
             await runner.killAll();
             clearProgress(ctx);
-            active = null;
           }
           return;
         }
@@ -644,18 +601,21 @@ export default function (pi: ExtensionAPI) {
   });
 
   // §9.4: kill children and mark the active run aborted.
-  pi.on("session_shutdown", async () => {
+  pi.on("session_shutdown", async (_event, ctx) => {
     const running = active;
-    if (!running) return;
-    running.orch.abort();
-    await running.runner.killAll();
-    if (running.ticker) clearInterval(running.ticker);
-    if (active === running) active = null;
+    if (running) {
+      running.orch.abort();
+      await running.runner.killAll();
+    }
+    // Clear even when no run is active: this removes UI left by an older extension
+    // version during /reload, session switches, or a previously missed cleanup.
+    clearProgress(ctx, running);
   });
 
   // §9.4: sweep runs left `running` by a crashed session; mark them aborted (resumable).
   // Logic lives in orchestrator.ts so it is testable (§13.21).
   pi.on("session_start", async (_event, ctx) => {
+    clearProgress(ctx, null);
     sweepStaleRuns(ctx.cwd);
   });
 }

@@ -117,10 +117,10 @@ Also available as a tool the agent can call itself:
 debate_run { "seedFile": "plan.md", "dryRun": true }
 ```
 
-While a debate runs, a persistent **◆ Debate running** widget above the editor refreshes every
-second with its phase, elapsed time, completed cost/tokens, and live current-turn usage. It also
-shows the active tool when the Skeptic is checking evidence. `/debate status` refreshes that
-widget; once idle it gives a concise last-run summary instead of doing nothing.
+While a debate runs, a **◆ Debate running** widget above the editor refreshes every second with
+its phase, elapsed time, completed cost/tokens, and live current-turn usage. It also shows the
+active tool when the Skeptic is checking evidence. The widget and footer status clear when the
+run ends. `/debate status` reports active or last-run state without pinning idle UI.
 
 `dryRun` resolves models, counts turns, and estimates cost **without invoking any model** —
 worth doing first on a large seed:
@@ -252,7 +252,7 @@ records a skip and the run is unaffected.
 ## Development
 
 ```bash
-npm test        # 661 checks, no tokens spent (hermetic: uses a throwaway PI_AGENT_DIR)
+npm test        # 671 checks, no tokens spent (hermetic: uses a throwaway PI_AGENT_DIR)
 ```
 
 Real-token tests are excluded on purpose; run `npx tsx test/runner-direct.test.ts`

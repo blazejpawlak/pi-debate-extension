@@ -14,7 +14,7 @@
                                          ▼
   ┌────────────────────────────────────────────────────────────────────────┐
   │ index.ts  (425)   REGISTRATION + GLUE ONLY, never business logic       │
-  │   /debate command · debate_run tool · debate-verdict entry renderer    │
+  │   /debate command · debate_run tool · transient progress/status UI     │
   │   status line + widget (ctx.hasUI guarded) · session_start/shutdown    │
   │   NOT unit-testable: needs typebox + pi's jiti loader (§13.21)         │
   └───────┬──────────────────────────────────────────────┬─────────────────┘
