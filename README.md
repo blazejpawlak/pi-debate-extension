@@ -80,21 +80,20 @@ roster (or a provider/model per role), see credential status, set the relevant g
 choose a project file from a picker, type a path, or paste a topic. Review the complete summary,
 then confirm. It writes only your choices.
 
-The one setting most people want, because it makes runs free:
+Model availability, pricing, and account entitlements vary by installation. Use `/debate setup`
+to select models available to you. Prefer three distinct model families when possible, ensure the
+Skeptic supports the required tools, and use token/time limits whenever a provider does not
+report enforceable monetary cost.
+
+For a minimal generic configuration, select a built-in profile:
 
 ```json
-{ "debate": { "tier": "ibm" } }
+{ "debate": { "tier": "default" } }
 ```
 
-| tier | roles | cost | note |
-|---|---|---|---|
-| `ibm` | all three on `ibm-services-essentials` | **$0** | three distinct model families, so the judge stays independent |
-| `free` | IBM free models | **$0** | only two families — judge not fully independent |
-| `default` | OpenRouter Claude / GPT / Gemini | ~$0.81 per 6KB seed | strongest metered roster |
-| `strong` | + `openai-codex/gpt-6-astra` skeptic | ~$2.11 measured | needs codex quota |
-
-Full reference: **[CONFIG.md](CONFIG.md)** — per-role models, budgets, tool allowlists,
-time caps, swarm integration.
+You can also choose a provider/model independently for each role. Full reference:
+**[CONFIG.md](CONFIG.md)** — profiles, per-role models, budgets, tool allowlists, time caps,
+and optional swarm integration.
 
 ## Use
 
@@ -128,11 +127,11 @@ worth doing first on a large seed:
 ```
 mode: review
 seed: plan.md (51839 chars)
-models: ideator=ibm-services-essentials/claude-opus-4-8
-        skeptic=ibm-services-essentials/gpt-5.6-sol
-        synthesizer=ibm-services-essentials/gemini-3.7-flash
+models: ideator=<resolved-provider>/<resolved-model>
+        skeptic=<resolved-provider>/<resolved-model>
+        synthesizer=<resolved-provider>/<resolved-model>
 max model turns: 7 (+ up to 2 repairs)
-estimated cost: $0.00 - every role is on a provider that bills nothing
+estimated cost: <provider-derived estimate or unavailable>
 time cap: 2700s total, 420s per turn, +420s verdict grace
 ```
 
@@ -196,10 +195,10 @@ A role budget can only ever narrow, never widen — adding one cannot increase t
 There is no configuration that produces an endless debate: every path terminates in a
 verdict file, even when every budget is exhausted.
 
-**Important caveat on dollar figures.** Some providers (including IBM) report
-`cost.total = 0` for every model. Where that happens the USD caps **cannot bind**, token
-and time caps are the real limits, and every cost figure is marked `$0.0000 (?)` with an
-explicit "cost figures are understated" note. No run ever presents a fake `$0.00` as fact.
+**Important caveat on dollar figures.** Some providers do not report monetary cost. Where
+that happens USD caps **cannot bind**; token and time caps are the real limits, and the result
+marks the monetary total as untrusted with an explicit warning. No run presents an unavailable
+cost figure as verified.
 
 ## Swarm integration (optional, off by default)
 
